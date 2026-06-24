@@ -1,780 +1,474 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
 import Link from "next/link";
 import {
-  BanknoteArrowDown,
-  BanknoteArrowUp,
-  ChevronDown,
-  CreditCard,
-  Fuel,
-  HandCoins,
-  Home,
-  Plus,
-  ShoppingCart,
-  Utensils,
+  ArrowUpRight,
+  Clock,
+  FileUp,
+  List,
+  Loader2,
+  Wallet,
 } from "lucide-react";
 import {
-  Area,
-  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ReferenceLine,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import AddTransactionModal from "@/components/AddTransactionModal";
-import { useTransactions } from "@/hooks/useTransactions";
+
 import { supabase } from "@/lib/supabase";
 
-const formatBRL = (value: number) =>
-  new Intl.NumberFormat("pt-BR", {
+type Transaction = {
+  id: string;
+  transaction_date: string;
+  description: string;
+  amount: number;
+  type: "income" | "expense";
+  source: string | null;
+  created_at: string;
+};
+
+type Account = {
+  id: string;
+  name: string;
+  balance: number;
+  active?: boolean;
+};
+
+const monthNames = [
+  "Jan",
+  "Fev",
+  "Mar",
+  "Abr",
+  "Mai",
+  "Jun",
+  "Jul",
+  "Ago",
+  "Set",
+  "Out",
+  "Nov",
+  "Dez",
+];
+
+function formatBRL(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
   }).format(value);
+}
 
-const categoryIcons: Record<string, any> = {
-  Compras: ShoppingCart,
-  iFood: Utensils,
-  Fatura: CreditCard,
-  Pix: CreditCard,
-  Combustível: Fuel,
-  Salário: BanknoteArrowUp,
-  Receita: BanknoteArrowUp,
-  Moradia: Home,
-};
+function formatDateBR(date: string) {
+  return new Date(date + "T00:00:00").toLocaleDateString("pt-BR");
+}
 
-const categoryColors: Record<string, string> = {
-  Fatura: "#ef4444",
-  Pix: "#10b981",
-  Compras: "#8b5cf6",
-  iFood: "#f97316",
-  Academia: "#3b82f6",
-  Streaming: "#ec4899",
-  Assinatura: "#eab308",
-  Combustível: "#06b6d4",
-  Dentista: "#14b8a6",
-  "Manutenção carro": "#71717a",
-  Salário: "#22c55e",
-  Transferência: "#3b82f6",
-  "Bônus salário": "#22c55e",
-  "Crédito juros": "#6366f1",
-  Outros: "#14b8a6",
-};
+function getSourceLabel(source?: string | null) {
+  if (source === "caixa") return "Caixa";
+  if (source === "inter") return "Inter";
+  if (source === "mercadopago") return "Mercado Pago";
+  return "Manual";
+}
+
+function getMonthKey(date: string) {
+  const parsedDate = new Date(date + "T00:00:00");
+  const year = parsedDate.getFullYear();
+  const month = String(parsedDate.getMonth() + 1).padStart(2, "0");
+
+  return `${year}-${month}`;
+}
 
 export default function DashboardPage() {
-  const { transactions, loading, reload } = useTransactions();
-  const [mainAccountBalance, setMainAccountBalance] = useState(0);
-
-  const [openModal, setOpenModal] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const [chartPeriod, setChartPeriod] = useState<6 | 12>(6);
-
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-
-  async function loadMainAccountBalance() {
-    const { data, error } = await supabase
-      .from("bank_accounts")
-      .select("balance")
-      .eq("id", "caixa")
-      .single();
-
-    if (error) {
-      console.log("ERRO AO BUSCAR SALDO DA CAIXA:", error);
-      return;
-    }
-
-    setMainAccountBalance(Number(data?.balance ?? 0));
-  }
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState<3 | 6 | 12>(6);
 
   useEffect(() => {
-    loadMainAccountBalance();
+    loadDashboard();
   }, []);
 
-  const currentMonthTransactions = useMemo(() => {
-    const now = new Date();
-    const month = now.getMonth();
-    const year = now.getFullYear();
+  async function loadDashboard() {
+    setLoading(true);
 
-    return transactions.filter((transaction) => {
-      const date = new Date(transaction.transaction_date + "T00:00:00");
+    const [transactionsResponse, accountsResponse] = await Promise.all([
+      supabase
+        .from("transactions")
+        .select(
+          "id, transaction_date, description, amount, type, source, created_at"
+        )
+        .order("transaction_date", { ascending: true }),
 
-      return date.getMonth() === month && date.getFullYear() === year;
-    });
-  }, [transactions]);
+      supabase
+        .from("accounts")
+        .select("*"),
+    ]);
 
-  const income = useMemo(
-    () =>
-      currentMonthTransactions
-        .filter((transaction) => transaction.type === "income")
-        .reduce((sum, transaction) => sum + Number(transaction.amount), 0),
-    [currentMonthTransactions]
-  );
-
-  const expenses = useMemo(
-    () =>
-      currentMonthTransactions
-        .filter((transaction) => transaction.type === "expense")
-        .reduce((sum, transaction) => sum + Number(transaction.amount), 0),
-    [currentMonthTransactions]
-  );
-
-  const balance = mainAccountBalance;
-
-  const previousMonthBalance = useMemo(() => {
-    const now = new Date();
-
-    const previousMonth = new Date(
-      now.getFullYear(),
-      now.getMonth() - 1,
-      1
-    );
-
-    const previousTransactions = transactions.filter((transaction) => {
-      const date = new Date(transaction.transaction_date + "T00:00:00");
-
-      return (
-        date.getMonth() === previousMonth.getMonth() &&
-        date.getFullYear() === previousMonth.getFullYear()
-      );
-    });
-
-    const income = previousTransactions
-      .filter((transaction) => transaction.type === "income")
-      .reduce((sum, transaction) => sum + Number(transaction.amount), 0);
-
-    const expenses = previousTransactions
-      .filter((transaction) => transaction.type === "expense")
-      .reduce((sum, transaction) => sum + Number(transaction.amount), 0);
-
-    return income - expenses;
-  }, [transactions]);
-
-  const balanceGrowth = useMemo(() => {
-    if (previousMonthBalance === 0) {
-      return 100;
+    if (transactionsResponse.error) {
+      console.error(transactionsResponse.error);
+    } else {
+      setTransactions((transactionsResponse.data ?? []) as Transaction[]);
     }
 
-    return (
-      ((balance - previousMonthBalance) / Math.abs(previousMonthBalance)) *
-      100
-    );
-  }, [balance, previousMonthBalance]);
-  const dashboardTransactions = useMemo(() => {
-    return transactions.filter((transaction) => {
-      if (transaction.payment_method !== "credit_card") {
-        return true;
-      }
-
-      const paidInvoiceExists = transactions.some(
-        (historyTransaction) =>
-          historyTransaction.payment_method === "credit_card_invoice" &&
-          historyTransaction.card_id === transaction.card_id &&
-          historyTransaction.type === "expense"
-      );
-
-      return !paidInvoiceExists;
-    });
-  }, [transactions]);
-  const recentTransactions = useMemo(() => {
-    const today = new Date();
-
-    const todayOnly = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate()
-    );
-
-    return dashboardTransactions
-      .filter((transaction) => {
-        const transactionDate = new Date(
-          transaction.transaction_date + "T00:00:00"
-        );
-
-        return transactionDate <= todayOnly;
-      })
-      .sort((a, b) => {
-        return (
-          new Date(b.transaction_date + "T00:00:00").getTime() -
-          new Date(a.transaction_date + "T00:00:00").getTime()
-        );
-      })
-      .slice(0, 5);
-  }, [dashboardTransactions]);
-
-
-
-  const categoriesByPeriod = useMemo(() => {
-    const grouped = new Map<string, number>();
-
-    const filteredTransactions = dashboardTransactions.filter((transaction) => {
-      if (!startDate || !endDate) {
-        return true;
-      }
-
-      const date = new Date(transaction.transaction_date + "T00:00:00");
-
-      return (
-        date >= new Date(startDate + "T00:00:00") &&
-        date <= new Date(endDate + "T23:59:59")
-      );
-    });
-
-    filteredTransactions.forEach((transaction) => {
-      const category = transaction.category || "Outros";
-
-      grouped.set(
-        category,
-        (grouped.get(category) ?? 0) + Number(transaction.amount)
-      );
-    });
-
-    return Array.from(grouped.entries())
-      .map(([category, value]) => ({
-        category,
-        value,
-      }))
-      .sort((a, b) => b.value - a.value);
-  }, [dashboardTransactions, startDate, endDate]);
-
-  const categoriesTotal = useMemo(() => {
-    return categoriesByPeriod.reduce((sum, item) => sum + item.value, 0);
-  }, [categoriesByPeriod]);
-
-  const balanceEvolution = useMemo(() => {
-    const months = [
-      "Jan",
-      "Fev",
-      "Mar",
-      "Abr",
-      "Mai",
-      "Jun",
-      "Jul",
-      "Ago",
-      "Set",
-      "Out",
-      "Nov",
-      "Dez",
-    ];
-
-    if (!startDate || !endDate) {
-      const now = new Date();
-
-      return Array.from({ length: chartPeriod }, (_, index) => {
-        const date = new Date(
-          now.getFullYear(),
-          now.getMonth() - (chartPeriod - 1) + index,
-          1
-        );
-
-        const month = date.getMonth();
-        const year = date.getFullYear();
-
-        const monthTransactions = dashboardTransactions.filter((transaction) => {
-          const transactionDate = new Date(
-            transaction.transaction_date + "T00:00:00"
-          );
-
-          return (
-            transactionDate.getMonth() === month &&
-            transactionDate.getFullYear() === year
-          );
-        });
-
-        const monthBalance = monthTransactions.reduce((sum, transaction) => {
-          return transaction.type === "income"
-            ? sum + Number(transaction.amount)
-            : sum - Number(transaction.amount);
-        }, 0);
-
-        return {
-          month: `${months[month]}/${year}`,
-          saldo: monthBalance,
-          order: date.getTime(),
-        };
-      });
+    if (accountsResponse.error) {
+      console.error(accountsResponse.error);
+    } else {
+      console.log("ACCOUNTS DASH:", accountsResponse.data);
+      setAccounts((accountsResponse.data ?? []) as Account[]);
     }
 
-    const start = new Date(startDate + "T00:00:00");
-    const end = new Date(endDate + "T00:00:00");
+    setLoading(false);
+  }
 
-    const filteredTransactions = transactions.filter((transaction) => {
-      const date = new Date(transaction.transaction_date + "T00:00:00");
+  const dashboardData = useMemo(() => {
+    const sortedTransactions = [...transactions].sort((a, b) =>
+      a.transaction_date.localeCompare(b.transaction_date)
+    );
 
-      return date >= start && date <= end;
-    });
+    const initialBalance = accounts.reduce(
+      (sum, account) => sum + Number(account.balance ?? 0),
+      0
+    );
 
-    const grouped = new Map<string, { saldo: number; order: number }>();
+    const transactionBalance = sortedTransactions.reduce(
+      (sum, item) => sum + Number(item.amount),
+      0
+    );
 
-    filteredTransactions.forEach((transaction) => {
-      const date = new Date(transaction.transaction_date + "T00:00:00");
+    const currentBalance = initialBalance + transactionBalance;
 
-      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
-      const key = `${months[date.getMonth()]}/${date.getFullYear()}`;
+    const totalIncome = sortedTransactions
+      .filter((item) => item.type === "income")
+      .reduce((sum, item) => sum + Math.abs(Number(item.amount)), 0);
 
-      const current = grouped.get(key) ?? {
-        saldo: 0,
-        order: monthStart.getTime(),
+    const totalExpense = sortedTransactions
+      .filter((item) => item.type === "expense")
+      .reduce((sum, item) => sum + Math.abs(Number(item.amount)), 0);
+
+    const totalTransactions = sortedTransactions.length;
+
+    const lastTransaction = [...sortedTransactions].sort((a, b) =>
+      b.transaction_date.localeCompare(a.transaction_date)
+    )[0];
+
+    const lastImport = lastTransaction
+      ? formatDateBR(lastTransaction.transaction_date)
+      : "Nenhuma";
+
+    const now = new Date();
+
+    const months = Array.from({ length: period }).map((_, index) => {
+      const date = new Date(
+        now.getFullYear(),
+        now.getMonth() - (period - 1 - index),
+        1
+      );
+
+      const key = `${date.getFullYear()}-${String(
+        date.getMonth() + 1
+      ).padStart(2, "0")}`;
+
+      return {
+        key,
+        month: monthNames[date.getMonth()],
+        income: 0,
+        expense: 0,
       };
-
-      grouped.set(key, {
-        order: current.order,
-        saldo:
-          current.saldo +
-          (transaction.type === "income"
-            ? Number(transaction.amount)
-            : -Number(transaction.amount)),
-      });
     });
 
-    return Array.from(grouped.entries())
-      .map(([month, data]) => ({
-        month,
-        saldo: data.saldo,
-        order: data.order,
-      }))
-      .sort((a, b) => a.order - b.order);
-  }, [dashboardTransactions, chartPeriod, startDate, endDate]);
+    const monthlyMap = new Map(months.map((item) => [item.key, item]));
 
-  const chartLimits = useMemo(() => {
-    const values = balanceEvolution.map((item) => item.saldo);
+    for (const transaction of sortedTransactions) {
+      const key = getMonthKey(transaction.transaction_date);
+      const monthData = monthlyMap.get(key);
 
-    const min = Math.min(...values, 0);
-    const max = Math.max(...values, 0);
+      if (!monthData) continue;
 
-    const padding = Math.max(Math.abs(min), Math.abs(max)) * 0.2 || 1000;
+      if (transaction.type === "income") {
+        monthData.income += Math.abs(Number(transaction.amount));
+      } else {
+        monthData.expense += Math.abs(Number(transaction.amount));
+      }
+    }
 
-    const domainMin = min - padding;
-    const domainMax = max + padding;
+    let runningBalance = initialBalance;
 
-    const zeroOffset = (domainMax / (domainMax - domainMin)) * 100;
+    const balanceChartData = months.map((month) => {
+      const monthTransactions = sortedTransactions.filter(
+        (transaction) => getMonthKey(transaction.transaction_date) === month.key
+      );
+
+      const monthBalance = monthTransactions.reduce(
+        (sum, item) => sum + Number(item.amount),
+        0
+      );
+
+      runningBalance += monthBalance;
+
+      return {
+        month: month.month,
+        balance: runningBalance,
+      };
+    });
+
+    const monthlyChartData = months.map((month) => ({
+      month: month.month,
+      income: month.income,
+      expense: month.expense,
+    }));
+
+    const recentImports = [...sortedTransactions]
+      .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
+      .slice(0, 8);
 
     return {
-      domainMin,
-      domainMax,
-      zeroOffset,
+      currentBalance,
+      totalIncome,
+      totalExpense,
+      totalTransactions,
+      lastImport,
+      balanceChartData,
+      monthlyChartData,
+      recentImports,
+      accountBalance: initialBalance,
     };
-  }, [balanceEvolution]);
+  }, [transactions, accounts, period]);
 
   return (
-    <>
-      <div className="space-y-6">
-        <header className="flex items-start justify-between gap-6">
+    <main className="min-h-screen">
+      <section className="w-full px-8 py-7">
+        <header className="mb-7 flex items-start justify-between">
           <div>
-            <h1 className="text-[42px] font-semibold text-white">
+            <h2 className="text-3xl font-semibold tracking-tight">
               Dashboard
-            </h1>
-
-            <p className="mt-2 text-base font-normal text-zinc-400">
-              Aqui está o resumo das suas finanças
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Visão geral das suas finanças
             </p>
           </div>
 
-          <button
-            onClick={() => setOpenModal(true)}
-            className="flex h-12 cursor-pointer items-center gap-3 rounded-lg bg-emerald-600 px-5 text-sm font-medium text-white transition hover:bg-emerald-500"
+          <Link
+            href="/importar"
+            className="flex items-center gap-2 rounded-2xl bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-cyan-300"
           >
-            <Plus size={20} />
-            Adicionar transação
-            <ChevronDown size={18} />
-          </button>
+            <FileUp size={18} />
+            Importar arquivo
+          </Link>
         </header>
 
-        <section className="grid grid-cols-3 gap-5">
-          <SummaryCard
-            title="Saldo total"
-            value={formatBRL(balance)}
-            helper={`${balanceGrowth >= 0 ? "▲" : "▼"
-              } ${Math.abs(balanceGrowth).toFixed(1)}% vs mês anterior`}
-            icon={<HandCoins size={24} />}
-            color="blue"
-          />
-
-          <SummaryCard
-            title="Receitas"
-            value={formatBRL(income)}
-            helper="Este mês"
-            icon={<BanknoteArrowUp size={22} />}
-            color="green"
-          />
-
-          <SummaryCard
-            title="Despesas"
-            value={formatBRL(expenses)}
-            helper="Este mês"
-            icon={<BanknoteArrowDown size={22} />}
-            color="red"
-          />
-        </section>
-
-        <section className="rounded-xl border border-zinc-800 bg-[#081018]/90 p-6">
-          <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white">
-              Evolução do saldo
-            </h2>
-
-            <div className="flex items-center gap-3">
-              <div className="flex overflow-hidden rounded-lg border border-zinc-700">
-                <button
-                  onClick={() => setChartPeriod(6)}
-                  className={`h-10 px-4 text-sm transition ${chartPeriod === 6
-                    ? "bg-emerald-500/15 text-emerald-400"
-                    : "text-zinc-400 hover:bg-white/5 hover:text-white"
-                    }`}
-                >
-                  6 meses
-                </button>
-
-                <button
-                  onClick={() => setChartPeriod(12)}
-                  className={`h-10 border-l border-zinc-700 px-4 text-sm transition ${chartPeriod === 12
-                    ? "bg-emerald-500/15 text-emerald-400"
-                    : "text-zinc-400 hover:bg-white/5 hover:text-white"
-                    }`}
-                >
-                  12 meses
-                </button>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="h-10 rounded-lg border border-zinc-700 bg-[#081018] px-3 text-sm text-zinc-300 outline-none transition hover:border-zinc-600"
-                />
-
-                <span className="text-sm text-zinc-500">até</span>
-
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="h-10 rounded-lg border border-zinc-700 bg-[#081018] px-3 text-sm text-zinc-300 outline-none transition hover:border-zinc-600"
-                />
-
-                {(startDate || endDate) && (
-                  <button
-                    onClick={() => {
-                      setStartDate("");
-                      setEndDate("");
-                    }}
-                    className="h-10 rounded-lg border border-zinc-700 px-4 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
-                  >
-                    Limpar
-                  </button>
-                )}
-              </div>
-            </div>
+        {loading ? (
+          <div className="flex h-[60vh] items-center justify-center text-zinc-500">
+            <Loader2 size={22} className="mr-2 animate-spin" />
+            Carregando dashboard...
           </div>
+        ) : (
+          <>
+            <section className="mb-5 grid grid-cols-4 gap-4">
+              <SummaryCard
+                title="Saldo em conta"
+                value={formatBRL(dashboardData.currentBalance)}
+                helper="Conta Caixa"
+                icon={<Wallet size={21} />}
+                variant="blue"
+              />
 
-          <div className="h-[280px]">
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={balanceEvolution}>
-                <defs>
-                  <linearGradient id="lineColor" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#22c55e" />
-                    <stop
-                      offset={`${chartLimits.zeroOffset}%`}
-                      stopColor="#22c55e"
-                    />
-                    <stop
-                      offset={`${chartLimits.zeroOffset}%`}
-                      stopColor="#ef4444"
-                    />
-                    <stop offset="100%" stopColor="#ef4444" />
-                  </linearGradient>
+              <SummaryCard
+                title="Transações"
+                value={String(dashboardData.totalTransactions)}
+                helper="Lançamentos salvos"
+                icon={<List size={21} />}
+                variant="purple"
+              />
 
-                  <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#22c55e" stopOpacity={0.45} />
+              <SummaryCard
+                title="Receitas"
+                value={formatBRL(dashboardData.totalIncome)}
+                helper="Total de entradas"
+                icon={<ArrowUpRight size={21} />}
+                variant="green"
+              />
 
-                    <stop
-                      offset={`${chartLimits.zeroOffset}%`}
-                      stopColor="#22c55e"
-                      stopOpacity={0.12}
-                    />
+              <SummaryCard
+                title="Despesas"
+                value={formatBRL(dashboardData.totalExpense)}
+                helper={`Última importação: ${dashboardData.lastImport}`}
+                icon={<Clock size={21} />}
+                variant="red"
+              />
+            </section>
 
-                    <stop
-                      offset={`${chartLimits.zeroOffset}%`}
-                      stopColor="#ef4444"
-                      stopOpacity={0.12}
-                    />
-
-                    <stop
-                      offset="100%"
-                      stopColor="#ef4444"
-                      stopOpacity={0.45}
-                    />
-                  </linearGradient>
-                </defs>
-
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-
-                <ReferenceLine y={0} stroke="#3f3f46" strokeDasharray="3 3" />
-
-                <XAxis dataKey="month" stroke="#a1a1aa" />
-
-                <YAxis
-                  domain={[chartLimits.domainMin, chartLimits.domainMax]}
-                  tick={false}
-                  axisLine={false}
-                  tickLine={false}
-                  width={0}
-                />
-
-                <Tooltip
-                  contentStyle={{
-                    background: "#05090d",
-                    border: "1px solid #27272a",
-                    borderRadius: "10px",
-                    color: "#fff",
-                  }}
-                  formatter={(value) => formatBRL(Number(value))}
-                />
-
-                <Area
-                  type="monotone"
-                  dataKey="saldo"
-                  stroke="url(#lineColor)"
-                  strokeWidth={3}
-                  fill="url(#splitColor)"
-                  activeDot={{
-                    r: 6,
-                    strokeWidth: 2,
-                    fill: "#05090d",
-                  }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
-
-        <section className="grid grid-cols-[0.9fr_1.1fr] gap-5">
-          <div className="rounded-xl border border-zinc-800 bg-[#081018]/90 p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-white">
-                Transações recentes
-              </h2>
-
-              <Link
-                href="/history"
-                className="cursor-pointer text-sm font-semibold text-emerald-400 transition hover:text-emerald-300"
-              >
-                Ver todas
-              </Link>
-            </div>
-
-            {loading ? (
-              <p className="text-sm text-zinc-500">Carregando transações...</p>
-            ) : recentTransactions.length === 0 ? (
-              <p className="text-sm text-zinc-500">
-                Nenhuma transação cadastrada ainda.
-              </p>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-[1fr_130px_130px] border-b border-zinc-800 pb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  <span className="pl-[62px]">Transação</span>
-
-                  <div className="flex justify-start">
-                    <span>Data</span>
-                  </div>
-
-                  <span className="text-left">Valor</span>
-                </div>
-
-                {recentTransactions.map((transaction) => {
-                  const category = transaction.category || "Outros";
-                  const Icon = categoryIcons[category] || CreditCard;
-
-                  return (
-                    <div
-                      key={transaction.id}
-                      className="grid grid-cols-[1fr_130px_130px] items-center gap-4 rounded-xl border border-transparent px-2 py-3 transition hover:border-zinc-800 hover:bg-white/[0.02]"
+            <section className="mb-5 grid grid-cols-2 gap-4">
+              <ChartCard title="Evolução do saldo geral">
+                <div className="mb-4 flex gap-2">
+                  {[3, 6, 12].map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => setPeriod(item as 3 | 6 | 12)}
+                      className={`rounded-xl border px-3 py-1.5 text-xs transition ${period === item
+                        ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
+                        : "border-white/10 text-zinc-500 hover:border-cyan-400/40 hover:text-cyan-300"
+                        }`}
                     >
-                      <div className="flex min-w-0 items-center gap-4">
-                        <div
-                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
-                          style={{
-                            backgroundColor:
-                              transaction.type === "income"
-                                ? "#2563eb"
-                                : categoryColors[category] || "#22c55e",
-                          }}
+                      {item} meses
+                    </button>
+                  ))}
+                </div>
+
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={dashboardData.balanceChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#14202b" />
+                    <XAxis dataKey="month" stroke="#71717a" tickLine={false} />
+                    <YAxis stroke="#71717a" tickLine={false} axisLine={false} />
+                    <Tooltip
+                      formatter={(value) => formatBRL(Number(value))}
+                      contentStyle={{
+                        background: "#081018",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        borderRadius: "14px",
+                        color: "#fff",
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="balance"
+                      stroke="#22d3ee"
+                      strokeWidth={3}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartCard>
+
+              <ChartCard title="Movimentação mensal">
+                <div className="mb-4 flex items-center gap-4 text-xs text-zinc-500">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                    Receitas
+                  </span>
+
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-red-400" />
+                    Despesas
+                  </span>
+                </div>
+
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={dashboardData.monthlyChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#14202b" />
+                    <XAxis dataKey="month" stroke="#71717a" tickLine={false} />
+                    <YAxis stroke="#71717a" tickLine={false} axisLine={false} />
+                    <Tooltip
+                      formatter={(value) => formatBRL(Number(value))}
+                      contentStyle={{
+                        background: "#081018",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        borderRadius: "14px",
+                        color: "#fff",
+                      }}
+                    />
+                    <Bar dataKey="income" fill="#22c55e" radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="expense" fill="#ef4444" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </section>
+
+            <section className="rounded-3xl border border-white/10 bg-[#081018]/90 shadow-[0_0_40px_rgba(0,0,0,0.2)]">
+              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+                <div>
+                  <h3 className="text-lg font-medium">
+                    Movimentações recentes
+                  </h3>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Últimos lançamentos salvos no sistema
+                  </p>
+                </div>
+
+                <Link
+                  href="/importar"
+                  className="rounded-xl border border-white/10 px-3 py-2 text-xs text-zinc-400 transition hover:border-cyan-400/40 hover:text-cyan-300"
+                >
+                  Nova importação
+                </Link>
+              </div>
+
+              <div className="overflow-hidden">
+                <table className="w-full border-collapse text-sm">
+                  <thead className="bg-white/[0.02] text-zinc-500">
+                    <tr>
+                      <th className="px-5 py-3 text-left font-medium">Data</th>
+                      <th className="px-5 py-3 text-left font-medium">
+                        Descrição
+                      </th>
+                      <th className="px-5 py-3 text-left font-medium">
+                        Origem
+                      </th>
+                      <th className="px-5 py-3 text-left font-medium">Tipo</th>
+                      <th className="px-5 py-3 text-right font-medium">
+                        Valor
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {dashboardData.recentImports.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-5 py-14 text-center">
+                          <p className="text-sm text-zinc-400">
+                            Nenhuma movimentação encontrada
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-600">
+                            Importe seu primeiro arquivo para começar.
+                          </p>
+                        </td>
+                      </tr>
+                    ) : (
+                      dashboardData.recentImports.map((transaction) => (
+                        <tr
+                          key={transaction.id}
+                          className="border-t border-white/5 transition hover:bg-white/[0.02]"
                         >
-                          <Icon size={21} className="text-white" />
-                        </div>
+                          <td className="px-5 py-3 text-zinc-400">
+                            {formatDateBR(transaction.transaction_date)}
+                          </td>
 
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold text-white">
-                            {transaction.title}
-                          </p>
+                          <td className="px-5 py-3 text-zinc-200">
+                            {transaction.description}
+                          </td>
 
-                          <p className="mt-1 text-sm text-zinc-400">
-                            {category}
-                          </p>
-                        </div>
-                      </div>
+                          <td className="px-5 py-3 text-zinc-400">
+                            {getSourceLabel(transaction.source)}
+                          </td>
 
-                      <div className="flex justify-start text-sm text-zinc-400">
-                        {new Date(
-                          transaction.transaction_date + "T00:00:00"
-                        ).toLocaleDateString("pt-BR")}
-                      </div>
+                          <td className="px-5 py-3 text-zinc-400">
+                            {transaction.type === "income"
+                              ? "Receita"
+                              : "Despesa"}
+                          </td>
 
-                      <p
-                        className={`text-left text-sm font-bold ${transaction.type === "income"
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                          }`}
-                      >
-                        {transaction.type === "income" ? "+ " : "- "}
-                        {formatBRL(Number(transaction.amount))}
-                      </p>
-                    </div>
-                  );
-                })}
+                          <td
+                            className={`px-5 py-3 text-right font-medium ${Number(transaction.amount) >= 0
+                              ? "text-emerald-300"
+                              : "text-red-300"
+                              }`}
+                          >
+                            {formatBRL(Number(transaction.amount))}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </div>
-
-          <div className="rounded-xl border border-zinc-800 bg-[#081018]/90 p-6">
-            <div className="mb-5">
-              <h2 className="text-xl font-bold text-white">
-                Movimentações por categoria
-              </h2>
-            </div>
-
-            {categoriesByPeriod.length === 0 ? (
-              <p className="text-sm text-zinc-500">
-                Nenhuma movimentação encontrada no período.
-              </p>
-            ) : (
-              <div className="grid grid-cols-[280px_1fr] items-center gap-6">
-                <div className="relative h-[260px]">
-                  <ResponsiveContainer width="100%" height={260}>
-                    <PieChart>
-                      <Pie
-                        data={categoriesByPeriod}
-                        dataKey="value"
-                        nameKey="category"
-                        innerRadius={74}
-                        outerRadius={118}
-                        paddingAngle={0}
-                        stroke="transparent"
-                      >
-                        {categoriesByPeriod.map((item, index) => (
-                          <Cell
-                            key={item.category}
-                            fill={categoryColors[item.category] || "#14b8a6"}
-                            style={{
-                              transform:
-                                activeIndex === index
-                                  ? "scale(1.045)"
-                                  : "scale(1)",
-                              transformOrigin: "center",
-                              transition:
-                                "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), filter 260ms ease, opacity 260ms ease, stroke 260ms ease",
-                              filter:
-                                activeIndex === index
-                                  ? "brightness(1.18) drop-shadow(0 0 18px rgba(255,255,255,0.18))"
-                                  : "brightness(1)",
-                              opacity:
-                                activeIndex === -1 || activeIndex === index
-                                  ? 1
-                                  : 0.55,
-                              stroke:
-                                activeIndex === index
-                                  ? "rgba(255,255,255,0.95)"
-                                  : "transparent",
-                              strokeWidth: activeIndex === index ? 3 : 0,
-                              cursor: "pointer",
-                            }}
-                            onMouseEnter={() => setActiveIndex(index)}
-                            onMouseLeave={() => setActiveIndex(-1)}
-                          />
-                        ))}
-                      </Pie>
-
-                      <Tooltip
-                        contentStyle={{
-                          background: "#05090d",
-                          border: "1px solid #27272a",
-                          borderRadius: "10px",
-                          color: "#fff",
-                        }}
-                        formatter={(value) => formatBRL(Number(value))}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-
-                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-left text-sm text-zinc-400">
-                      Total
-                    </span>
-                    <span className="mt-1 text-lg font-semibold text-white">
-                      {formatBRL(categoriesTotal)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {categoriesByPeriod.map((item) => {
-                    const percentage =
-                      categoriesTotal > 0
-                        ? (item.value / categoriesTotal) * 100
-                        : 0;
-
-                    return (
-                      <div
-                        key={item.category}
-                        className="grid grid-cols-[1fr_110px_45px] items-center gap-4 text-sm"
-                      >
-                        <div className="flex items-center gap-3">
-                          <span
-                            className="h-3 w-3 rounded-full"
-                            style={{
-                              backgroundColor:
-                                categoryColors[item.category] || "#14b8a6",
-                            }}
-                          />
-
-                          <span className="text-zinc-200">
-                            {item.category}
-                          </span>
-                        </div>
-
-                        <span className="text-right text-zinc-200">
-                          {formatBRL(item.value)}
-                        </span>
-
-                        <span className="text-right text-zinc-400">
-                          {percentage.toFixed(0)}%
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
-
-      <AddTransactionModal
-        open={openModal}
-        onClose={() => setOpenModal(false)}
-        onSuccess={async () => {
-          await reload();
-          await loadMainAccountBalance();
-        }}
-      />
-    </>
+            </section>
+          </>
+        )}
+      </section>
+    </main>
   );
 }
 
@@ -783,54 +477,52 @@ function SummaryCard({
   value,
   helper,
   icon,
-  color,
+  variant,
 }: {
   title: string;
   value: string;
   helper: string;
-  icon: ReactNode;
-  color: "blue" | "green" | "red";
+  icon: React.ReactNode;
+  variant: "green" | "red" | "blue" | "purple" | "neutral";
+}) {
+  const variants = {
+    green: "text-emerald-300 bg-emerald-400/10 border-emerald-400/20",
+    red: "text-red-300 bg-red-400/10 border-red-400/20",
+    blue: "text-cyan-300 bg-cyan-400/10 border-cyan-400/20",
+    purple: "text-violet-300 bg-violet-400/10 border-violet-400/20",
+    neutral: "text-zinc-300 bg-white/5 border-white/10",
+  };
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-[#081018]/90 p-5 shadow-[0_0_40px_rgba(0,0,0,0.15)]">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-zinc-500">{title}</p>
+
+        <div className={`rounded-2xl border p-2 ${variants[variant]}`}>
+          {icon}
+        </div>
+      </div>
+
+      <strong className="mt-5 block text-3xl font-semibold tracking-tight">
+        {value}
+      </strong>
+
+      <p className="mt-2 text-xs text-zinc-600">{helper}</p>
+    </div>
+  );
+}
+
+function ChartCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-zinc-800 bg-[#081018]/90 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-zinc-700">
-      <div className="relative z-10">
-        <div className="mb-8 flex items-center justify-between">
-          <p className="text-base font-medium text-white">{title}</p>
-
-          <div
-            className={`flex h-11 w-11 items-center justify-center rounded-full border transition-all duration-300 ${color === "green"
-              ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-400 group-hover:border-emerald-400/40 group-hover:bg-emerald-500/20"
-              : color === "red"
-                ? "border-red-500/30 bg-red-500/15 text-red-400 group-hover:border-red-400/40 group-hover:bg-red-500/20"
-                : "border-blue-500/30 bg-blue-500/15 text-blue-400 group-hover:border-blue-400/40 group-hover:bg-blue-500/20"
-              }`}
-          >
-            {icon}
-          </div>
-        </div>
-
-        <p
-          className={`text-4xl font-semibold tracking-tight transition-all duration-300 ${color === "green"
-            ? "text-emerald-400 group-hover:text-emerald-300"
-            : color === "red"
-              ? "text-red-400 group-hover:text-red-300"
-              : "text-blue-400 group-hover:text-blue-300"
-            }`}
-        >
-          {value}
-        </p>
-
-        <p
-          className={`mt-5 text-sm font-medium ${helper.includes("▲")
-            ? "text-emerald-400"
-            : helper.includes("▼")
-              ? "text-red-400"
-              : "text-zinc-400"
-            }`}
-        >
-          {helper}
-        </p>
-      </div>
+    <div className="rounded-3xl border border-white/10 bg-[#081018]/90 p-5 shadow-[0_0_40px_rgba(0,0,0,0.15)]">
+      <h3 className="mb-4 text-lg font-medium">{title}</h3>
+      {children}
     </div>
   );
 }

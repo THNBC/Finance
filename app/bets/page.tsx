@@ -3,1518 +3,997 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
-    ArrowRightLeft,
-    BarChart3,
-    ChevronDown,
-    Info,
-    Landmark,
+    ArrowDown,
+    ArrowUp,
+    ChevronLeft,
+    ChevronRight,
+    LineChart,
+    Loader2,
     Plus,
+    Trash2,
+    Wallet,
     X,
-    Settings2,
-    TrendingUp,
-    ArrowDownToLine,
-    ArrowUpToLine,
 } from "lucide-react";
 import {
-    Area,
-    AreaChart,
     CartesianGrid,
+    Line,
+    LineChart as RechartsLineChart,
     ResponsiveContainer,
     Tooltip,
     XAxis,
     YAxis,
 } from "recharts";
+
 import { supabase } from "@/lib/supabase";
+
+type HouseName = "Bet365" | "Betano" | "Superbet";
+type MovementType = "base" | "deposit" | "profit" | "loss" | "withdraw";
+type ChartRange = 3 | 6 | 12;
 
 type BetAccount = {
     id: string;
     name: string;
-    logo: string;
-    balance: number;
-    deposits: number;
-    withdrawals: number;
+    balance: number | null;
 };
 
 type BetTransaction = {
     id: string;
-    type: "transfer" | "withdraw" | "profit" | "deposit";
-    from_account: string;
-    to_account: string;
+    type: string;
+    from_account: string | null;
+    to_account: string | null;
     amount: number;
     created_at: string;
+    description?: string | null;
 };
 
+type ChartRow = {
+    month: string;
+    Bet365: number;
+    Betano: number;
+    Superbet: number;
+};
 
+const HOUSES: HouseName[] = ["Bet365", "Betano", "Superbet"];
+
+const LOGO_BY_HOUSE: Record<HouseName, string> = {
+    Bet365: "/icons/bet365.png",
+    Betano: "/icons/betano.png",
+    Superbet: "/icons/superbet.png",
+};
+
+const HOUSE_COLORS: Record<HouseName, string> = {
+    Bet365: "#22c55e",
+    Betano: "#f97316",
+    Superbet: "#ef4444",
+};
+
+const HOUSE_DOT_COLORS: Record<HouseName, string> = {
+    Bet365: "bg-emerald-400",
+    Betano: "bg-orange-400",
+    Superbet: "bg-red-400",
+};
 
 function formatBRL(value: number) {
-    return value.toLocaleString("pt-BR", {
+    return new Intl.NumberFormat("pt-BR", {
         style: "currency",
         currency: "BRL",
-    });
+    }).format(value);
 }
 
 function parseBRL(value: string) {
-    return Number(value.replace(/\./g, "").replace(",", "."));
+    return Number(value.replace(/\./g, "").replace(",", ".").trim());
 }
-function formatChartDate(value: string) {
+
+function todayInputDate() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+function parseHouseName(value?: string | null): HouseName | null {
+    if (!value) return null;
+
+    const normalized = value.toLowerCase();
+
+    if (normalized.includes("bet365")) return "Bet365";
+    if (normalized.includes("betano")) return "Betano";
+    if (normalized.includes("superbet")) return "Superbet";
+
+    return null;
+}
+
+function getTransactionHouse(transaction: BetTransaction): HouseName | null {
+    return (
+        parseHouseName(transaction.to_account) ??
+        parseHouseName(transaction.from_account)
+    );
+}
+
+function getTypeLabel(type: string) {
+    if (type === "base") return "Valor base";
+    if (type === "deposit") return "Depósito";
+    if (type === "withdraw") return "Saque";
+    if (type === "profit") return "Lucro";
+    if (type === "loss") return "Perda";
+    if (type === "bet") return "Aposta";
+    return type;
+}
+
+function getPerformanceAmount(transaction: BetTransaction) {
+    const amount = Math.abs(Number(transaction.amount ?? 0));
+
+    if (transaction.type === "profit") return amount;
+    if (transaction.type === "loss") return -amount;
+    if (transaction.type === "bet") return -amount;
+
+    return 0;
+}
+
+function getResultAmount(transaction: BetTransaction) {
+    const amount = Math.abs(Number(transaction.amount ?? 0));
+
+    if (transaction.type === "withdraw") return amount;
+    if (transaction.type === "profit") return amount;
+
+    if (transaction.type === "deposit") return -amount;
+    if (transaction.type === "loss") return -amount;
+    if (transaction.type === "bet") return -amount;
+
+    return 0;
+}
+
+function getTypeColor(type: string) {
+    if (type === "withdraw") return "text-blue-400";
+    if (type === "deposit") return "text-orange-400";
+    if (type === "profit") return "text-emerald-400";
+    if (type === "base") return "text-cyan-400";
+
+    return "text-red-400";
+}
+
+function formatDate(value: string) {
     return new Date(value).toLocaleDateString("pt-BR", {
         day: "2-digit",
-        month: "short",
+        month: "2-digit",
+        year: "numeric",
     });
 }
+
+function getMonthKey(date: Date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
+        2,
+        "0"
+    )}`;
+}
+
+function getMonthLabel(date: Date) {
+    return date.toLocaleDateString("pt-BR", {
+        month: "short",
+        year: "2-digit",
+    });
+}
+
+function isCurrentMonth(date: Date) {
+    const now = new Date();
+
+    return (
+        date.getMonth() === now.getMonth() &&
+        date.getFullYear() === now.getFullYear()
+    );
+}
+
+function isPreviousMonth(date: Date) {
+    const now = new Date();
+    const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    return (
+        date.getMonth() === previous.getMonth() &&
+        date.getFullYear() === previous.getFullYear()
+    );
+}
+
+function getMonthComparison(current: number, previous: number) {
+    if (previous === 0) {
+        return current === 0 ? "0,0% vs mês anterior" : "Novo valor no mês";
+    }
+
+    const diff = current - previous;
+    const percent = (diff / Math.abs(previous)) * 100;
+    const sign = diff >= 0 ? "+" : "-";
+
+    return `${sign} ${Math.abs(percent).toFixed(1)}% (${sign} ${formatBRL(
+        Math.abs(diff)
+    )}) vs mês anterior`;
+}
+
 export default function BetsPage() {
     const [accounts, setAccounts] = useState<BetAccount[]>([]);
-    const [porquinhoBalance, setPorquinhoBalance] = useState(0);
     const [transactions, setTransactions] = useState<BetTransaction[]>([]);
+    const [loading, setLoading] = useState(true);
 
-    const [transferModalOpen, setTransferModalOpen] = useState(false);
-    const [transferFrom, setTransferFrom] = useState("");
-    const [transferTo, setTransferTo] = useState("");
-    const [transferAmount, setTransferAmount] = useState("");
+    const [chartRange, setChartRange] = useState<ChartRange>(6);
 
-    const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
-    const [withdrawAccountId, setWithdrawAccountId] = useState("");
-    const [withdrawAmount, setWithdrawAmount] = useState("");
+    const [modalOpen, setModalOpen] = useState(false);
+    const [formHouse, setFormHouse] = useState<HouseName>("Bet365");
+    const [formType, setFormType] = useState<MovementType>("profit");
+    const [formAmount, setFormAmount] = useState("");
+    const [formDate, setFormDate] = useState(todayInputDate());
+    const [saving, setSaving] = useState(false);
 
-    const [profitModalOpen, setProfitModalOpen] = useState(false);
-    const [profitAccountId, setProfitAccountId] = useState("");
-    const [profitAmount, setProfitAmount] = useState("");
-    const [profitMode, setProfitMode] = useState<"profit" | "deposit">("profit");
-    const [isLoss, setIsLoss] = useState(false);
-
-    const [actionsModalOpen, setActionsModalOpen] = useState(false);
-    const [actionsAccountId, setActionsAccountId] = useState("");
-    const [historyModalOpen, setHistoryModalOpen] = useState(false);
-    const [historyAccountId, setHistoryAccountId] = useState("");
-    const [chartPeriod, setChartPeriod] = useState<3 | 6 | 12>(3);
-    const transferAccounts = useMemo<BetAccount[]>(
-        () => [
-            ...accounts,
-            {
-                id: "porquinho-bets",
-                name: "Porquinho Bets",
-                logo: "/icons/inter.png",
-                balance: porquinhoBalance,
-                deposits: 0,
-                withdrawals: 0,
-            },
-        ],
-        [accounts, porquinhoBalance]
-    );
-
-    const totalBalance = accounts.reduce((acc, item) => acc + item.balance, 0);
-    const totalDeposits = accounts.reduce((acc, item) => acc + item.deposits, 0);
-    const totalWithdrawals = accounts.reduce(
-        (acc, item) => acc + item.withdrawals,
-        0
-    );
-
-    const liquidResult = transactions
-        .filter((transaction) => transaction.type === "profit")
-        .reduce((acc, transaction) => acc + Number(transaction.amount), 0);
-
-    const averageRoi =
-        totalDeposits > 0 ? (liquidResult / totalDeposits) * 100 : 0;
+    const [page, setPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
 
     useEffect(() => {
-        loadAccounts();
+        loadData();
     }, []);
 
-    async function loadAccounts() {
-        const defaultAccounts: BetAccount[] = [
-            {
-                id: "bet365",
-                name: "Bet365",
-                logo: "/icons/bet365.png",
-                balance: 0,
-                deposits: 0,
-                withdrawals: 0,
-            },
-            {
-                id: "betano",
-                name: "Betano",
-                logo: "/icons/betano.png",
-                balance: 0,
-                deposits: 0,
-                withdrawals: 0,
-            },
-            {
-                id: "superbet",
-                name: "Superbet",
-                logo: "/icons/superbet.png",
-                balance: 0,
-                deposits: 0,
-                withdrawals: 0,
-            },
-        ];
+    useEffect(() => {
+        setPage(1);
+    }, [itemsPerPage, transactions]);
 
-        const { data: betAccounts } = await supabase
+    async function loadData() {
+        setLoading(true);
+
+        const [accountsRes, transactionsRes] = await Promise.all([
+            supabase.from("bet_accounts").select("*").order("name"),
+            supabase
+                .from("bet_transactions")
+                .select("*")
+                .order("created_at", { ascending: false }),
+        ]);
+
+        if (accountsRes.error || transactionsRes.error) {
+            alert(
+                accountsRes.error?.message ||
+                transactionsRes.error?.message ||
+                "Erro ao carregar bets."
+            );
+            setLoading(false);
+            return;
+        }
+
+        setAccounts((accountsRes.data ?? []) as BetAccount[]);
+        setTransactions((transactionsRes.data ?? []) as BetTransaction[]);
+        setLoading(false);
+    }
+
+    async function getOrCreateAccount(house: HouseName) {
+        const existing = accounts.find(
+            (item) => parseHouseName(item.name) === house
+        );
+
+        if (existing) return existing;
+
+        const { data, error } = await supabase
             .from("bet_accounts")
-            .select("*");
-
-        const { data: investments } = await supabase
-            .from("investments")
-            .select("*");
-
-        const { data: betTransactions } = await supabase
-            .from("bet_transactions")
+            .insert({
+                name: house,
+                balance: 0,
+            })
             .select("*")
-            .order("created_at", { ascending: false });
+            .single();
 
-        const porquinho = investments?.find((item) =>
-            String(item.name || "").toLowerCase().includes("porquinho")
-        );
+        if (error) throw error;
 
-        setPorquinhoBalance(
-            Number(
-                porquinho?.current_amount ??
-                porquinho?.amount ??
-                porquinho?.balance ??
-                porquinho?.value ??
-                0
-            )
-        );
+        return data as BetAccount;
+    }
 
-        const mergedAccounts = defaultAccounts.map((defaultAccount) => {
-            const savedAccount = betAccounts?.find(
-                (item) => item.id === defaultAccount.id
+    function resetForm() {
+        setModalOpen(false);
+        setFormAmount("");
+        setFormType("profit");
+        setFormHouse("Bet365");
+        setFormDate(todayInputDate());
+    }
+
+    async function saveMovement() {
+        const amount = parseBRL(formAmount);
+
+        if (!amount || amount <= 0) {
+            alert("Informe um valor válido.");
+            return;
+        }
+
+        try {
+            setSaving(true);
+
+            const account = await getOrCreateAccount(formHouse);
+            const currentBalance = Number(account.balance ?? 0);
+
+            if (formType === "base") {
+                const { error } = await supabase
+                    .from("bet_accounts")
+                    .update({ balance: amount })
+                    .eq("id", account.id);
+
+                if (error) throw error;
+
+                resetForm();
+                await loadData();
+                return;
+            }
+
+            const nextBalance =
+                formType === "deposit" || formType === "profit"
+                    ? currentBalance + amount
+                    : currentBalance - amount;
+
+            const { error: accountError } = await supabase
+                .from("bet_accounts")
+                .update({ balance: nextBalance })
+                .eq("id", account.id);
+
+            if (accountError) throw accountError;
+
+            const transactionPayload = {
+                type:
+                    formType === "deposit"
+                        ? "deposit"
+                        : formType === "profit"
+                            ? "profit"
+                            : formType === "loss"
+                                ? "loss"
+                                : "withdraw",
+                from_account:
+                    formType === "withdraw" || formType === "loss" ? formHouse : null,
+                to_account:
+                    formType === "deposit" || formType === "profit" ? formHouse : null,
+                amount,
+                description: getTypeLabel(formType),
+                created_at: `${formDate}T12:00:00`,
+            };
+
+            const { error: transactionError } = await supabase
+                .from("bet_transactions")
+                .insert(transactionPayload);
+
+            if (transactionError) {
+                alert(transactionError.message);
+                return;
+            }
+
+            resetForm();
+            await loadData();
+        } catch (error) {
+            alert(
+                error instanceof Error ? error.message : "Erro ao salvar movimentação."
+            );
+        } finally {
+            setSaving(false);
+        }
+    }
+
+
+    async function deleteMovement(id: string) {
+        const confirmed = confirm("Deseja excluir essa movimentação?");
+        if (!confirmed) return;
+
+        const { error } = await supabase
+            .from("bet_transactions")
+            .delete()
+            .eq("id", id);
+
+        if (error) {
+            alert(error.message);
+            return;
+        }
+
+        await loadData();
+    }
+
+    const data = useMemo(() => {
+        const visibleAccounts = HOUSES.map((house) => {
+            const account = accounts.find(
+                (item) => parseHouseName(item.name) === house
             );
 
             return {
-                ...defaultAccount,
-                balance: Number(savedAccount?.balance ?? defaultAccount.balance),
-                deposits: Number(savedAccount?.deposits ?? defaultAccount.deposits),
-                withdrawals: Number(
-                    savedAccount?.withdrawals ?? defaultAccount.withdrawals
-                ),
+                id: account?.id ?? house,
+                name: house,
+                balance: Number(account?.balance ?? 0),
             };
         });
 
-        setAccounts(mergedAccounts);
-        setTransactions((betTransactions as BetTransaction[]) || []);
-    }
-
-    function openTransfer(accountId: string) {
-        setTransferFrom(accountId);
-        setTransferTo(
-            transferAccounts.find((item) => item.id !== accountId)?.id || ""
-        );
-        setTransferAmount("");
-        setTransferModalOpen(true);
-    }
-
-    async function confirmTransfer() {
-        const value = parseBRL(transferAmount);
-
-        if (!transferFrom || !transferTo || !value || value <= 0) return;
-
-        const fromAccount = transferAccounts.find((item) => item.id === transferFrom);
-        const toAccount = transferAccounts.find((item) => item.id === transferTo);
-
-        if (!fromAccount || !toAccount) return;
-        if (fromAccount.balance < value) return;
-
-        const newFromBalance = fromAccount.balance - value;
-        const newToBalance = toAccount.balance + value;
-
-        if (transferFrom !== "porquinho-bets") {
-            const { error } = await supabase.from("bet_accounts").upsert(
-                {
-                    id: fromAccount.id,
-                    name: fromAccount.name,
-                    logo: fromAccount.logo,
-                    balance: newFromBalance,
-                    deposits: fromAccount.deposits,
-                    withdrawals: fromAccount.withdrawals,
-                },
-                { onConflict: "id" }
-            );
-
-            if (error) {
-                console.error("Erro ao atualizar conta origem:", error);
-                return;
-            }
-        }
-
-        if (transferTo !== "porquinho-bets") {
-            const { error } = await supabase.from("bet_accounts").upsert(
-                {
-                    id: toAccount.id,
-                    name: toAccount.name,
-                    logo: toAccount.logo,
-                    balance: newToBalance,
-                    deposits: toAccount.deposits,
-                    withdrawals: toAccount.withdrawals,
-                },
-                { onConflict: "id" }
-            );
-
-            if (error) {
-                console.error("Erro ao atualizar conta destino:", error);
-                return;
-            }
-        }
-
-        if (transferFrom === "porquinho-bets") {
-            const { error } = await supabase
-                .from("investments")
-                .update({ current_amount: newFromBalance })
-                .ilike("name", "%porquinho%");
-
-            if (error) {
-                console.error("Erro ao atualizar Porquinho origem:", error);
-                return;
-            }
-        }
-
-        if (transferTo === "porquinho-bets") {
-            const { error } = await supabase
-                .from("investments")
-                .update({ current_amount: newToBalance })
-                .ilike("name", "%porquinho%");
-
-            if (error) {
-                console.error("Erro ao atualizar Porquinho destino:", error);
-                return;
-            }
-        }
-
-        const { error: transactionError } = await supabase
-            .from("bet_transactions")
-            .insert({
-                type: "transfer",
-                from_account: fromAccount.name,
-                to_account: toAccount.name,
-                amount: value,
-            });
-
-        if (transactionError) {
-            console.error("Erro ao salvar movimentação:", transactionError);
-            return;
-        }
-
-        setTransferModalOpen(false);
-        setTransferFrom("");
-        setTransferTo("");
-        setTransferAmount("");
-
-        await loadAccounts();
-    }
-
-    async function confirmWithdraw() {
-        const account = accounts.find((item) => item.id === withdrawAccountId);
-        const value = parseBRL(withdrawAmount);
-
-        if (!account || !value || value <= 0) return;
-        if (account.balance < value) return;
-
-        const newBetBalance = account.balance - value;
-        const newPorquinhoBalance = porquinhoBalance + value;
-
-        await supabase.from("bet_accounts").upsert(
-            {
-                id: account.id,
-                name: account.name,
-                logo: account.logo,
-                balance: newBetBalance,
-                deposits: account.deposits,
-                withdrawals: account.withdrawals + value,
-            },
-            { onConflict: "id" }
+        const totalBalance = visibleAccounts.reduce(
+            (sum, item) => sum + Number(item.balance ?? 0),
+            0
         );
 
-        await supabase
-            .from("investments")
-            .update({ current_amount: newPorquinhoBalance })
-            .ilike("name", "%porquinho%");
+        const currentMonthTransactions = transactions.filter((transaction) =>
+            isCurrentMonth(new Date(transaction.created_at))
+        );
 
-        await supabase.from("bet_transactions").insert({
-            type: "withdraw",
-            from_account: account.name,
-            to_account: "Porquinho Bets",
-            amount: value,
+        const previousMonthTransactions = transactions.filter((transaction) =>
+            isPreviousMonth(new Date(transaction.created_at))
+        );
+
+        const totalDeposited = currentMonthTransactions
+            .filter((item) => item.type === "deposit")
+            .reduce((sum, item) => sum + Math.abs(Number(item.amount ?? 0)), 0);
+
+        const previousDeposited = previousMonthTransactions
+            .filter((item) => item.type === "deposit")
+            .reduce((sum, item) => sum + Math.abs(Number(item.amount ?? 0)), 0);
+
+        const totalWithdrawn = currentMonthTransactions
+            .filter((item) => item.type === "withdraw")
+            .reduce((sum, item) => sum + Math.abs(Number(item.amount ?? 0)), 0);
+
+        const previousWithdrawn = previousMonthTransactions
+            .filter((item) => item.type === "withdraw")
+            .reduce((sum, item) => sum + Math.abs(Number(item.amount ?? 0)), 0);
+
+        const monthResult = currentMonthTransactions.reduce(
+            (sum, item) => sum + getResultAmount(item),
+            0
+        );
+
+        const previousMonthResult = previousMonthTransactions.reduce(
+            (sum, item) => sum + getResultAmount(item),
+            0
+        );
+
+        const chartMonths = Array.from({ length: chartRange }).map((_, index) => {
+            const date = new Date();
+            date.setMonth(date.getMonth() - (chartRange - 1 - index));
+            date.setDate(1);
+
+            return {
+                key: getMonthKey(date),
+                label: getMonthLabel(date),
+            };
         });
 
-        setWithdrawModalOpen(false);
-        setWithdrawAccountId("");
-        setWithdrawAmount("");
+        const performanceData: ChartRow[] = chartMonths.map((month) => {
+            const row: ChartRow = {
+                month: month.label,
+                Bet365: 0,
+                Betano: 0,
+                Superbet: 0,
+            };
 
-        await loadAccounts();
-    }
-
-    async function confirmProfit() {
-        const account = accounts.find((item) => item.id === profitAccountId);
-        const value = parseBRL(profitAmount);
-
-        if (!account || !value || value <= 0) return;
-
-        const finalValue = profitMode === "profit" && isLoss ? value * -1 : value;
-        const newBalance = account.balance + finalValue;
-
-        const { error: accountError } = await supabase.from("bet_accounts").upsert(
-            {
-                id: account.id,
-                name: account.name,
-                logo: account.logo,
-                balance: newBalance,
-                deposits:
-                    profitMode === "deposit"
-                        ? account.deposits + value
-                        : account.deposits,
-                withdrawals: account.withdrawals,
-            },
-            { onConflict: "id" }
-        );
-
-        if (accountError) {
-            console.error("Erro ao atualizar conta:", accountError);
-            return;
-        }
-
-        const { error: transactionError } = await supabase
-            .from("bet_transactions")
-            .insert({
-                type: profitMode === "deposit" ? "deposit" : "profit",
-                from_account:
-                    profitMode === "deposit"
-                        ? "Depósito"
-                        : isLoss
-                            ? "Perda"
-                            : "Lucro",
-                to_account: account.name,
-                amount: finalValue,
+            const monthTransactions = transactions.filter((transaction) => {
+                const date = new Date(transaction.created_at);
+                return getMonthKey(date) === month.key;
             });
 
-        if (transactionError) {
-            console.error("Erro ao salvar movimentação:", transactionError);
-            return;
-        }
+            for (const transaction of monthTransactions) {
+                const house = getTransactionHouse(transaction);
+                if (!house) continue;
 
-        setProfitModalOpen(false);
-        setProfitAccountId("");
-        setProfitAmount("");
-        setProfitMode("profit");
-        setIsLoss(false);
+                row[house] += getPerformanceAmount(transaction);
+            }
 
-        await loadAccounts();
-    }
-    const historyAccount = accounts.find(
-        (item) => item.id === historyAccountId
-    );
+            return row;
+        });
 
-    const filteredTransactions = transactions.filter((transaction) => {
-        if (!historyAccount) return false;
-
-        return (
-            transaction.from_account === historyAccount.name ||
-            transaction.to_account === historyAccount.name
-        );
-    });
-    const performanceChartData = useMemo(() => {
-        const startDate = new Date();
-        startDate.setMonth(startDate.getMonth() - chartPeriod);
-
-        const groupedByDay = transactions
-            .filter((transaction) => {
-                const transactionDate = new Date(transaction.created_at);
-
-                return (
-                    transaction.type === "profit" &&
-                    transactionDate >= startDate
-                );
-            })
-            .reduce<Record<string, number>>((acc, transaction) => {
-                const dateKey = new Date(transaction.created_at)
-                    .toISOString()
-                    .split("T")[0];
-
-                acc[dateKey] = (acc[dateKey] || 0) + Number(transaction.amount);
-
-                return acc;
-            }, {});
-
-        const sortedDays = Object.entries(groupedByDay).sort(
-            ([dateA], [dateB]) =>
-                new Date(dateA).getTime() - new Date(dateB).getTime()
-        );
-
-        let accumulated = 0;
-
-        return [
-            {
-                date: "Início",
-                value: 0,
-            },
-            ...sortedDays.map(([date, amount]) => {
-                accumulated += amount;
+        const recentTransactions = [...transactions]
+            .sort(
+                (a, b) =>
+                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            )
+            .map((transaction) => {
+                const house = getTransactionHouse(transaction);
 
                 return {
-                    date: formatChartDate(date),
-                    value: accumulated,
+                    ...transaction,
+                    house,
+                    displayAmount: getResultAmount(transaction),
                 };
-            }),
-        ];
-    }, [transactions, chartPeriod]);
+            });
+
+        const totalPages = Math.max(
+            1,
+            Math.ceil(recentTransactions.length / itemsPerPage)
+        );
+
+        const safePage = Math.min(page, totalPages);
+
+        const paginatedTransactions = recentTransactions.slice(
+            (safePage - 1) * itemsPerPage,
+            safePage * itemsPerPage
+        );
+
+        return {
+            visibleAccounts,
+            totalBalance,
+            totalDeposited,
+            previousDeposited,
+            totalWithdrawn,
+            previousWithdrawn,
+            monthResult,
+            previousMonthResult,
+            performanceData,
+            recentTransactions,
+            paginatedTransactions,
+            totalPages,
+            safePage,
+        };
+    }, [accounts, transactions, chartRange, page, itemsPerPage]);
 
     return (
-        <main className="min-h-screen text-white">
-            <header className="mb-10">
-                <h1 className="text-[42px] font-semibold text-white">Bets</h1>
-
-                <p className="mt-3 text-sm text-zinc-400">
-                    Acompanhe o saldo e o desempenho das suas contas.
-                </p>
-            </header>
-
-            <section>
-                <h2 className="mb-4 text-lg font-semibold">Minhas contas</h2>
-
-                <div className="grid grid-cols-3 gap-6">
-                    {accounts.map((account) => {
-                        const accountProfit = transactions
-                            .filter(
-                                (transaction) =>
-                                    transaction.type === "profit" &&
-                                    transaction.to_account === account.name
-                            )
-                            .reduce((acc, transaction) => acc + Number(transaction.amount), 0);
-
-                        const roi =
-                            account.deposits > 0 ? (accountProfit / account.deposits) * 100 : 0;
-
-                        return (
-                            <div
-                                key={account.id}
-                                className={`
-                  group rounded-2xl border bg-[#081018] p-6
-                  transition-all duration-300 hover:-translate-y-1
-                  ${account.id === "bet365"
-                                        ? "border-emerald-500/30 hover:border-emerald-400 hover:shadow-[0_0_45px_rgba(16,185,129,0.22)]"
-                                        : account.id === "betano"
-                                            ? "border-orange-500/30 hover:border-orange-400 hover:shadow-[0_0_45px_rgba(249,115,22,0.22)]"
-                                            : "border-red-500/30 hover:border-red-400 hover:shadow-[0_0_45px_rgba(239,68,68,0.22)]"
-                                    }
-                `}
-                            >
-                                <div className="flex h-full flex-col overflow-hidden">
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div className="relative h-14 w-24 shrink-0">
-                                            <Image
-                                                src={account.logo}
-                                                alt={account.name}
-                                                fill
-                                                className="object-contain object-left drop-shadow-[0_0_12px_rgba(255,255,255,0.12)]"
-                                            />
-                                        </div>
-
-                                        <div className="flex min-w-0 flex-1 items-start justify-between pl-4">
-                                            <div className="min-w-[150px] pr-5 text-right">
-                                                <p className="text-sm text-zinc-400">
-                                                    Saldo disponível
-                                                </p>
-
-                                                <strong className="mt-1 block whitespace-nowrap text-[28px] font-medium leading-none tracking-tight text-white">
-                                                    {formatBRL(account.balance)}
-                                                </strong>
-                                            </div>
-
-                                            <button
-                                                onClick={() => {
-                                                    setHistoryAccountId(account.id);
-                                                    setHistoryModalOpen(true);
-                                                }}
-                                                className="
-            flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg
-            border border-white/10 bg-white/[0.03]
-            px-3 text-xs font-semibold text-zinc-200
-            transition-all duration-300
-            hover:border-white/20 hover:bg-white/[0.06] hover:text-white
-        "
-                                            >
-                                                <BarChart3 size={14} strokeWidth={2.2} />
-
-                                                <span className="whitespace-nowrap">
-                                                    Histórico
-                                                </span>
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <div className="my-6 h-px bg-white/10" />
-
-                                    <div className="grid grid-cols-2 gap-6">
-                                        <div>
-                                            <p className="text-sm text-emerald-500">Depósitos</p>
-
-                                            <strong className="mt-2 block whitespace-nowrap text-xl font-medium text-white">
-                                                {formatBRL(account.deposits)}
-                                            </strong>
-                                        </div>
-
-                                        <div className="border-l border-white/10 pl-6">
-                                            <p className="text-sm text-red-500">Saques</p>
-
-                                            <strong className="mt-2 block whitespace-nowrap text-xl font-medium text-white">
-                                                {formatBRL(account.withdrawals)}
-                                            </strong>
-                                        </div>
-                                    </div>
-
-                                    <div className="my-6 h-px bg-white/10" />
-
-                                    <div className="grid grid-cols-2 gap-6">
-                                        <div>
-                                            <div className="flex items-center gap-1.5">
-                                                <p className="text-sm text-zinc-400">
-                                                    Resultado líquido
-                                                </p>
-
-                                                <Info size={13} className="text-zinc-500" />
-                                            </div>
-
-                                            <strong
-                                                className={`mt-2 block whitespace-nowrap text-lg font-medium ${accountProfit >= 0
-                                                    ? "text-emerald-500"
-                                                    : "text-red-500"
-                                                    }`}
-                                            >
-                                                {formatBRL(accountProfit)}
-                                            </strong>
-                                        </div>
-
-                                        <div className="border-l border-white/10 pl-6">
-                                            <div className="flex items-center gap-1.5">
-                                                <p className="text-sm text-zinc-400">ROI</p>
-
-                                                <Info size={13} className="text-zinc-500" />
-                                            </div>
-
-                                            <strong
-                                                className={`mt-2 block whitespace-nowrap text-lg font-medium ${roi >= 0
-                                                    ? "text-emerald-500"
-                                                    : "text-red-500"
-                                                    }`}
-                                            >
-                                                {roi.toFixed(2).replace(".", ",")}%
-                                            </strong>
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        onClick={() => {
-                                            setActionsAccountId(account.id);
-                                            setActionsModalOpen(true);
-                                        }}
-                                        className="
-            mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl
-            border border-white/10 bg-white/[0.03]
-            px-4 text-sm font-semibold text-zinc-200
-            transition-all duration-300
-            hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-400
-            hover:shadow-[0_0_25px_rgba(16,185,129,0.16)]
-        "
-                                    >
-                                        <Settings2 size={17} />
-                                        Movimentar conta
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </section>
-
-            <section className="mt-6 rounded-xl border border-white/10 bg-[#081018] p-6 shadow-[0_0_60px_rgba(0,0,0,0.35)]">
-                <h2 className="mb-6 text-lg font-semibold">Resumo geral</h2>
-
-                <div className="grid grid-cols-5 gap-6">
+        <main className="min-h-screen w-full text-white">
+            <section className="w-full px-8 py-7">
+                <header className="mb-7 flex items-start justify-between">
                     <div>
-                        <p className="text-sm text-zinc-400">Saldo total disponível</p>
-                        <strong className="mt-2 block text-2xl font-medium">
-                            {formatBRL(totalBalance)}
-                        </strong>
-                    </div>
-
-                    <div className="border-l border-white/10 pl-8">
-                        <p className="text-sm text-zinc-400">Total depositado</p>
-                        <strong className="mt-2 block text-2xl font-medium">
-                            {formatBRL(totalDeposits)}
-                        </strong>
-                    </div>
-
-                    <div className="border-l border-white/10 pl-8">
-                        <p className="text-sm text-zinc-400">Total sacado</p>
-                        <strong className="mt-2 block text-2xl font-medium">
-                            {formatBRL(totalWithdrawals)}
-                        </strong>
-                    </div>
-
-                    <div className="border-l border-white/10 pl-8">
-                        <p className="text-sm text-zinc-400">Resultado líquido</p>
-                        <strong
-                            className={`mt-2 block text-2xl font-medium ${liquidResult >= 0
-                                ? "text-emerald-500"
-                                : "text-red-500"
-                                }`}
-                        >
-                            {formatBRL(liquidResult)}
-                        </strong>
-                    </div>
-
-                    <div className="border-l border-white/10 pl-8">
-                        <p className="text-sm text-zinc-400">ROI médio</p>
-                        <strong
-                            className={`mt-2 block text-2xl font-medium ${averageRoi >= 0
-                                ? "text-emerald-500"
-                                : "text-red-500"
-                                }`}
-                        >
-                            {averageRoi.toFixed(2).replace(".", ",")}%
-                        </strong>
-                    </div>
-                </div>
-            </section>
-
-            <section className="mt-6 rounded-xl border border-white/10 bg-[#081018] p-6 shadow-[0_0_60px_rgba(0,0,0,0.35)]">
-                <div className="mb-6 flex items-start justify-between gap-4">
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <h2 className="text-lg font-semibold">Desempenho líquido</h2>
-                            <Info size={15} className="text-zinc-500" />
-                        </div>
-
-                        <p className="mt-2 text-sm text-zinc-500">
-                            Evolução acumulada considerando apenas lucros e perdas.
+                        <h2 className="text-3xl font-semibold tracking-tight">Bets</h2>
+                        <p className="mt-1 text-sm text-zinc-500">
+                            Acompanhe seus resultados e controle suas apostas.
                         </p>
                     </div>
 
-                    <div className="relative">
-                        <select
-                            value={chartPeriod}
-                            onChange={(event) =>
-                                setChartPeriod(Number(event.target.value) as 3 | 6 | 12)
-                            }
-                            className="
-    h-10 cursor-pointer appearance-none rounded-xl border border-white/10
-    bg-[#0b1319] px-4 pr-10 text-xs font-semibold text-zinc-200
-    outline-none transition
-    hover:border-white/20
-    focus:border-white/20
-    [&>option]:bg-[#0b1319] [&>option]:text-white
-"
-                        >
-                            <option value={3}>3 meses</option>
-                            <option value={6}>6 meses</option>
-                            <option value={12}>12 meses</option>
-                        </select>
+                    <button
+                        onClick={() => setModalOpen(true)}
+                        className="flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-400"
+                    >
+                        <Plus size={18} />
+                        Adicionar movimentação
+                    </button>
+                </header>
 
-                        <ChevronDown
-                            size={15}
-                            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500"
-                        />
-                    </div>
-                </div>
-
-
-                {performanceChartData.length <= 1 ? (
-                    <div className="flex h-[280px] items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10">
-                        <p className="text-sm text-zinc-500">
-                            Nenhum dado de desempenho registrado.
-                        </p>
+                {loading ? (
+                    <div className="flex h-[60vh] items-center justify-center text-zinc-500">
+                        <Loader2 size={22} className="mr-2 animate-spin" />
+                        Carregando bets...
                     </div>
                 ) : (
-                    <div className="h-[280px]">
-                        <ResponsiveContainer width="100%" height={280}>
-                            <AreaChart data={performanceChartData}>
-                                <defs>
-                                    <linearGradient id="betsLineGradient" x1="0" y1="0" x2="1" y2="0">
-                                        {performanceChartData.map((item, index) => {
-                                            const offset =
-                                                performanceChartData.length <= 1
-                                                    ? 0
-                                                    : (index / (performanceChartData.length - 1)) * 100;
+                    <>
+                        <section className="mb-5 grid grid-cols-4 gap-4">
+                            <TopCard
+                                title="Saldo nas casas"
+                                value={formatBRL(data.totalBalance)}
+                                helper="Soma do saldo disponível"
+                                icon={<Wallet size={25} />}
+                                variant="green"
+                            />
 
-                                            const color =
-                                                Number(item.value) >= 0
-                                                    ? "#00c853"
-                                                    : "#ef4444";
+                            <TopCard
+                                title="Total depositado"
+                                value={formatBRL(data.totalDeposited)}
+                                helper={getMonthComparison(
+                                    data.totalDeposited,
+                                    data.previousDeposited
+                                )}
+                                icon={<ArrowDown size={25} />}
+                                variant="red"
+                            />
 
-                                            return (
-                                                <stop
-                                                    key={`${item.date}-${index}`}
-                                                    offset={`${offset}%`}
-                                                    stopColor={color}
+                            <TopCard
+                                title="Total sacado"
+                                value={formatBRL(data.totalWithdrawn)}
+                                helper={getMonthComparison(
+                                    data.totalWithdrawn,
+                                    data.previousWithdrawn
+                                )}
+                                icon={<ArrowUp size={25} />}
+                                variant="green"
+                            />
+
+                            <TopCard
+                                title="Resultado do mês"
+                                value={formatBRL(data.monthResult)}
+                                helper={getMonthComparison(
+                                    data.monthResult,
+                                    data.previousMonthResult
+                                )}
+                                icon={<LineChart size={25} />}
+                                variant={data.monthResult >= 0 ? "purple" : "red"}
+                            />
+                        </section>
+
+                        <section className="mb-5 grid grid-cols-[520px_1fr] gap-5">
+                            <Panel title="Saldo por casa">
+                                <div className="grid grid-cols-[1fr_140px] border-b border-white/10 pb-3 text-sm text-zinc-500">
+                                    <span>Casa</span>
+                                    <span className="text-right">Saldo</span>
+                                </div>
+
+                                <div className="divide-y divide-white/5">
+                                    {data.visibleAccounts.map((house) => (
+                                        <div
+                                            key={house.id}
+                                            className="grid grid-cols-[1fr_140px] items-center py-4"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <Image
+                                                    src={LOGO_BY_HOUSE[house.name]}
+                                                    alt={house.name}
+                                                    width={36}
+                                                    height={36}
+                                                    className="rounded-full"
                                                 />
-                                            );
-                                        })}
-                                    </linearGradient>
+                                                <span className="font-medium">{house.name}</span>
+                                            </div>
 
+                                            <span className="text-right font-medium">
+                                                {formatBRL(house.balance)}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
 
-                                </defs>
+                                <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-4 font-semibold">
+                                    <span>Total</span>
+                                    <span>{formatBRL(data.totalBalance)}</span>
+                                </div>
+                            </Panel>
 
-                                <CartesianGrid
-                                    stroke="rgba(255,255,255,0.08)"
-                                    strokeDasharray="3 3"
-                                    vertical={false}
-                                />
+                            <Panel
+                                title="Desempenho por casa"
+                                action={
+                                    <select
+                                        value={chartRange}
+                                        onChange={(event) =>
+                                            setChartRange(Number(event.target.value) as ChartRange)
+                                        }
+                                        className="h-9 rounded-xl border border-white/10 bg-[#081018] px-3 text-sm text-white outline-none"
+                                    >
+                                        <option value={3}>3 meses</option>
+                                        <option value={6}>6 meses</option>
+                                        <option value={12}>12 meses</option>
+                                    </select>
+                                }
+                            >
+                                <div className="mb-4 flex items-center gap-6 text-sm">
+                                    <Legend color={HOUSE_DOT_COLORS.Bet365} label="Bet365" />
+                                    <Legend color={HOUSE_DOT_COLORS.Betano} label="Betano" />
+                                    <Legend color={HOUSE_DOT_COLORS.Superbet} label="Superbet" />
+                                </div>
 
-                                <XAxis
-                                    dataKey="date"
-                                    tickLine={false}
-                                    axisLine={false}
-                                    tick={{ fill: "#d4d4d8", fontSize: 13 }}
-                                />
-
-                                <YAxis
-                                    hide
-                                    tickLine={false}
-                                    axisLine={false}
-                                />
-
-                                <Tooltip
-                                    contentStyle={{
-                                        background: "#05090d",
-                                        border: "1px solid rgba(255,255,255,0.12)",
-                                        borderRadius: "10px",
-                                        color: "#fff",
-                                    }}
-                                    labelStyle={{
-                                        color: "#a1a1aa",
-                                        marginBottom: "6px",
-                                    }}
-                                    formatter={(value) => [
-                                        formatBRL(Number(value)),
-                                        "Resultado",
-                                    ]}
-                                />
-
-                                <Area
-                                    type="monotone"
-                                    dataKey="value"
-                                    stroke="url(#betsLineGradient)"
-                                    strokeWidth={3}
-                                    fill="transparent"
-                                    dot={(props: any) => {
-                                        const { cx, cy, payload } = props;
-
-                                        const color =
-                                            Number(payload.value) >= 0
-                                                ? "#00c853"
-                                                : "#ef4444";
-
-                                        return (
-                                            <circle
-                                                cx={cx}
-                                                cy={cy}
-                                                r={3}
-                                                fill={color}
-                                                stroke={color}
+                                <div className="h-[280px]">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <RechartsLineChart data={data.performanceData}>
+                                            <CartesianGrid stroke="#1f2937" strokeDasharray="4 4" />
+                                            <XAxis dataKey="month" stroke="#94a3b8" tickLine={false} />
+                                            <YAxis
+                                                stroke="#94a3b8"
+                                                tickLine={false}
+                                                tickFormatter={(value) => `R$ ${value}`}
                                             />
-                                        );
-                                    }}
-                                    activeDot={(props: any) => {
-                                        const { cx, cy, payload } = props;
-
-                                        const color =
-                                            Number(payload.value) >= 0
-                                                ? "#00c853"
-                                                : "#ef4444";
-
-                                        return (
-                                            <circle
-                                                cx={cx}
-                                                cy={cy}
-                                                r={6}
-                                                fill={color}
-                                                stroke="#fff"
-                                                strokeWidth={2}
+                                            <Tooltip
+                                                contentStyle={{
+                                                    backgroundColor: "#081018",
+                                                    border: "1px solid rgba(255,255,255,0.1)",
+                                                    borderRadius: "16px",
+                                                }}
+                                                formatter={(value) => formatBRL(Number(value))}
                                             />
-                                        );
-                                    }}
-                                />
-                            </AreaChart>
-                        </ResponsiveContainer>
-                    </div>
+
+                                            {HOUSES.map((house) => (
+                                                <Line
+                                                    key={house}
+                                                    type="monotone"
+                                                    dataKey={house}
+                                                    stroke={HOUSE_COLORS[house]}
+                                                    strokeWidth={3}
+                                                    dot={{ r: 5 }}
+                                                />
+                                            ))}
+                                        </RechartsLineChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </Panel>
+                        </section>
+
+                        <section>
+                            <Panel title="Movimentações recentes">
+                                <div className="grid grid-cols-[14%_22%_18%_18%_16%_12%] border-b border-white/10 pb-3 text-sm text-zinc-500">
+                                    <span>Data</span>
+                                    <span>Descrição</span>
+                                    <span>Casa</span>
+                                    <span>Tipo</span>
+                                    <span>Valor</span>
+                                    <span className="text-right">Ações</span>
+                                </div>
+                                <div className="divide-y divide-white/5">
+                                    {data.paginatedTransactions.length === 0 ? (
+                                        <div className="py-10 text-center text-sm text-zinc-500">
+                                            Nenhuma movimentação cadastrada.
+                                        </div>
+                                    ) : (
+                                        data.paginatedTransactions.map((movement) => (
+                                            <div
+                                                key={movement.id}
+                                                className="grid grid-cols-[14%_22%_18%_18%_16%_12%] items-center py-4 text-sm"
+                                            >
+                                                <span className="text-zinc-400">
+                                                    {formatDate(movement.created_at)}
+                                                </span>
+
+                                                <span className="truncate pr-4">
+                                                    {getTypeLabel(movement.type)}
+                                                </span>
+
+                                                <div className="flex items-center gap-2">
+                                                    {movement.house ? (
+                                                        <>
+                                                            <Image
+                                                                src={LOGO_BY_HOUSE[movement.house]}
+                                                                alt={movement.house}
+                                                                width={26}
+                                                                height={26}
+                                                                className="rounded-full"
+                                                            />
+                                                            <span>{movement.house}</span>
+                                                        </>
+                                                    ) : (
+                                                        <span className="text-zinc-500">-</span>
+                                                    )}
+                                                </div>
+
+                                                <span className={getTypeColor(movement.type)}>
+                                                    {movement.type === "withdraw"
+                                                        ? "→"
+                                                        : movement.type === "deposit"
+                                                            ? "←"
+                                                            : movement.type === "profit"
+                                                                ? "↑"
+                                                                : "↓"}{" "}
+                                                    {getTypeLabel(movement.type)}
+                                                </span>
+
+                                                <span
+                                                    className={`font-semibold ${getTypeColor(
+                                                        movement.type
+                                                    )}`}
+                                                >
+                                                    {movement.displayAmount >= 0 ? "+" : "-"}{" "}
+                                                    {formatBRL(Math.abs(movement.displayAmount))}
+                                                </span>
+
+                                                <div className="flex justify-end">
+                                                    <button
+                                                        onClick={() => deleteMovement(movement.id)}
+                                                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-red-400/20 bg-red-400/10 text-red-300 transition hover:bg-red-400/20"
+                                                        title="Excluir movimentação"
+                                                    >
+                                                        <Trash2 size={15} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+
+                                <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4">
+                                    <p className="text-sm text-zinc-500">
+                                        Mostrando{" "}
+                                        {data.recentTransactions.length === 0
+                                            ? 0
+                                            : (data.safePage - 1) * itemsPerPage + 1}{" "}
+                                        a{" "}
+                                        {Math.min(
+                                            data.safePage * itemsPerPage,
+                                            data.recentTransactions.length
+                                        )}{" "}
+                                        de {data.recentTransactions.length} movimentações
+                                    </p>
+
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => setPage((current) => Math.max(1, current - 1))}
+                                            disabled={data.safePage === 1}
+                                            className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 text-zinc-400 transition hover:bg-white/5 disabled:opacity-40"
+                                        >
+                                            <ChevronLeft size={18} />
+                                        </button>
+
+                                        <div className="flex h-10 min-w-10 items-center justify-center rounded-xl border border-cyan-400 bg-cyan-400/10 px-3 text-cyan-300">
+                                            {data.safePage}
+                                        </div>
+
+                                        <button
+                                            onClick={() =>
+                                                setPage((current) =>
+                                                    Math.min(data.totalPages, current + 1)
+                                                )
+                                            }
+                                            disabled={data.safePage === data.totalPages}
+                                            className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 text-zinc-400 transition hover:bg-white/5 disabled:opacity-40"
+                                        >
+                                            <ChevronRight size={18} />
+                                        </button>
+                                    </div>
+
+                                    <select
+                                        value={itemsPerPage}
+                                        onChange={(event) => setItemsPerPage(Number(event.target.value))}
+                                        className="h-10 rounded-xl border border-white/10 bg-[#081018] px-3 text-sm text-white outline-none"
+                                    >
+                                        <option value={10}>10 por página</option>
+                                        <option value={20}>20 por página</option>
+                                        <option value={50}>50 por página</option>
+                                    </select>
+                                </div>
+                            </Panel>
+                        </section>
+                    </>
                 )}
             </section>
 
-
-
-            {
-                transferModalOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-                        <div className="w-full max-w-[560px] rounded-2xl border border-zinc-700 bg-[#081018] p-7 shadow-[0_0_80px_rgba(0,0,0,0.65)]">
-                            <div className="mb-7 flex items-start justify-between">
-                                <div>
-                                    <h2 className="text-2xl font-semibold text-white">
-                                        Transferir entre contas
-                                    </h2>
-
-                                    <p className="mt-3 text-sm text-zinc-400">
-                                        Transfira saldo entre suas contas de apostas.
-                                    </p>
-                                </div>
-
-                                <button
-                                    onClick={() => setTransferModalOpen(false)}
-                                    className="rounded-lg p-2 text-zinc-400 transition hover:bg-white/5 hover:text-white"
-                                >
-                                    <X size={24} />
-                                </button>
-                            </div>
-
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-[55px_1fr] items-center gap-4">
-                                    <label className="text-base text-zinc-400">De</label>
-
-                                    <div className="relative flex h-16 items-center justify-between rounded-xl border border-zinc-700 bg-[#0b1319] px-5 transition focus-within:border-sky-500">
-                                        <div className="relative h-8 w-28">
-                                            <Image
-                                                src={
-                                                    transferAccounts.find(
-                                                        (item) => item.id === transferFrom
-                                                    )?.logo || "/icons/inter.png"
-                                                }
-                                                alt="Conta origem"
-                                                fill
-                                                className="object-contain object-left"
-                                            />
-                                        </div>
-
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-lg font-semibold text-white">
-                                                {formatBRL(
-                                                    transferAccounts.find(
-                                                        (item) => item.id === transferFrom
-                                                    )?.balance || 0
-                                                )}
-                                            </span>
-
-                                            <ChevronDown size={18} className="text-zinc-400" />
-                                        </div>
-
-                                        <select
-                                            value={transferFrom}
-                                            onChange={(event) => {
-                                                setTransferFrom(event.target.value);
-
-                                                if (event.target.value === transferTo) {
-                                                    setTransferTo(
-                                                        transferAccounts.find(
-                                                            (item) => item.id !== event.target.value
-                                                        )?.id || ""
-                                                    );
-                                                }
-                                            }}
-                                            className="absolute inset-0 cursor-pointer opacity-0 [&>option]:bg-[#0b1319] [&>option]:text-white"
-                                        >
-                                            {transferAccounts.map((item) => (
-                                                <option key={item.id} value={item.id}>
-                                                    {item.name}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-[55px_1fr] items-center gap-4">
-                                    <label className="text-base text-zinc-400">Para</label>
-
-                                    <div className="relative flex h-16 items-center justify-between rounded-xl border border-zinc-700 bg-[#0b1319] px-5 transition focus-within:border-sky-500">
-                                        <div className="relative h-8 w-28">
-                                            <Image
-                                                src={
-                                                    transferAccounts.find((item) => item.id === transferTo)
-                                                        ?.logo || "/icons/inter.png"
-                                                }
-                                                alt="Conta destino"
-                                                fill
-                                                className="object-contain object-left"
-                                            />
-                                        </div>
-
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-lg font-semibold text-white">
-                                                {formatBRL(
-                                                    transferAccounts.find(
-                                                        (item) => item.id === transferTo
-                                                    )?.balance || 0
-                                                )}
-                                            </span>
-
-                                            <ChevronDown size={18} className="text-zinc-400" />
-                                        </div>
-
-                                        <select
-                                            value={transferTo}
-                                            onChange={(event) => setTransferTo(event.target.value)}
-                                            className="absolute inset-0 cursor-pointer opacity-0 [&>option]:bg-[#0b1319] [&>option]:text-white"
-                                        >
-                                            {transferAccounts
-                                                .filter((item) => item.id !== transferFrom)
-                                                .map((item) => (
-                                                    <option key={item.id} value={item.id}>
-                                                        {item.name}
-                                                    </option>
-                                                ))}
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-[55px_1fr] items-center gap-4">
-                                    <label className="text-base text-zinc-400">Valor</label>
-
-                                    <div className="flex h-14 overflow-hidden rounded-xl border border-zinc-700 bg-[#0b1319] transition focus-within:border-sky-500">
-                                        <div className="flex w-16 items-center justify-center border-r border-zinc-700 text-sm font-semibold text-white">
-                                            R$
-                                        </div>
-
-                                        <input
-                                            value={transferAmount}
-                                            onChange={(event) => setTransferAmount(event.target.value)}
-                                            placeholder="0,00"
-                                            className="w-full bg-transparent px-4 text-sm text-white outline-none placeholder:text-zinc-600"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-4 gap-3 pl-[71px]">
-                                    {["50", "100", "200"].map((value) => (
-                                        <button
-                                            key={value}
-                                            onClick={() => setTransferAmount(value)}
-                                            className="h-12 rounded-lg border border-zinc-700 text-sm text-zinc-200 transition hover:border-sky-500/60 hover:bg-sky-500/10 hover:text-sky-400"
-                                        >
-                                            + R$ {value}
-                                        </button>
-                                    ))}
-
-                                    <button
-                                        onClick={() => {
-                                            const account = transferAccounts.find(
-                                                (item) => item.id === transferFrom
-                                            );
-
-                                            setTransferAmount(
-                                                String(account?.balance || 0).replace(".", ",")
-                                            );
-                                        }}
-                                        className="h-12 rounded-lg border border-zinc-700 text-sm text-zinc-200 transition hover:border-sky-500/60 hover:bg-sky-500/10 hover:text-sky-400"
-                                    >
-                                        Máx.
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="mt-7 flex gap-4 rounded-xl border border-zinc-700 bg-[#0b1319] p-5 text-sm leading-6 text-zinc-300">
-                                <Info size={22} className="mt-1 shrink-0 text-zinc-300" />
-                                <p>
-                                    Transferências são instantâneas entre suas contas e não envolvem
-                                    saques ou depósitos externos.
+            {modalOpen && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+                    onClick={() => setModalOpen(false)}
+                >
+                    <div
+                        onClick={(event) => event.stopPropagation()}
+                        className="w-full max-w-md rounded-3xl border border-white/10 bg-[#081018] p-6"
+                    >
+                        <div className="mb-5 flex items-start justify-between gap-4">
+                            <div>
+                                <h3 className="text-xl font-semibold">
+                                    Adicionar movimentação
+                                </h3>
+                                <p className="mt-1 text-sm text-zinc-500">
+                                    Atualize o saldo e registre o movimento da casa.
                                 </p>
                             </div>
 
-                            <div className="mt-7 flex justify-end gap-4">
-                                <button
-                                    onClick={() => setTransferModalOpen(false)}
-                                    className="h-14 rounded-xl border border-zinc-700 px-9 text-sm font-medium text-zinc-200 transition hover:bg-white/5 hover:text-white"
-                                >
-                                    Cancelar
-                                </button>
+                            <button
+                                onClick={() => setModalOpen(false)}
+                                className="rounded-xl p-2 text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
 
-                                <button
-                                    onClick={confirmTransfer}
-                                    className="flex h-14 items-center gap-3 rounded-xl bg-sky-600 px-9 text-sm font-semibold text-white transition hover:bg-sky-500"
+                        <div className="space-y-4">
+                            <div>
+                                <label className="mb-2 block text-sm text-zinc-400">Casa</label>
+                                <select
+                                    value={formHouse}
+                                    onChange={(event) =>
+                                        setFormHouse(event.target.value as HouseName)
+                                    }
+                                    className="h-11 w-full rounded-2xl border border-white/10 bg-[#081018] px-4 text-sm text-white outline-none focus:border-cyan-400/50"
                                 >
-                                    <ArrowRightLeft size={18} />
-                                    Transferir
-                                </button>
+                                    <option value="Bet365">Bet365</option>
+                                    <option value="Betano">Betano</option>
+                                    <option value="Superbet">Superbet</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="mb-2 block text-sm text-zinc-400">Tipo</label>
+                                <select
+                                    value={formType}
+                                    onChange={(event) =>
+                                        setFormType(event.target.value as MovementType)
+                                    }
+                                    className="h-11 w-full rounded-2xl border border-white/10 bg-[#081018] px-4 text-sm text-white outline-none focus:border-cyan-400/50"
+                                >
+                                    <option value="base">Valor base da casa</option>
+                                    <option value="deposit">Depósito</option>
+                                    <option value="profit">Lucro</option>
+                                    <option value="loss">Perda</option>
+                                    <option value="withdraw">Saque</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="mb-2 block text-sm text-zinc-400">Data</label>
+                                <input
+                                    type="date"
+                                    value={formDate}
+                                    onChange={(event) => setFormDate(event.target.value)}
+                                    className="h-11 w-full rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-white outline-none focus:border-cyan-400/50"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="mb-2 block text-sm text-zinc-400">Valor</label>
+                                <input
+                                    value={formAmount}
+                                    onChange={(event) => setFormAmount(event.target.value)}
+                                    placeholder="Ex: 100,00"
+                                    className="h-11 w-full rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-400/50"
+                                />
+                            </div>
+
+                            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-400">
+                                {formType === "base" && "Define o saldo atual da casa."}
+                                {formType === "deposit" &&
+                                    "Depósito aumenta o saldo da casa, mas conta como negativo no resultado."}
+                                {formType === "profit" &&
+                                    "Lucro aumenta o saldo da casa e conta como positivo."}
+                                {formType === "loss" &&
+                                    "Perda diminui o saldo da casa e conta como negativo."}
+                                {formType === "withdraw" &&
+                                    "Saque diminui o saldo da casa, mas conta como positivo no resultado."}
                             </div>
                         </div>
-                    </div>
-                )
-            }
 
-            {
-                withdrawModalOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-                        <div className="w-full max-w-[520px] rounded-2xl border border-zinc-700 bg-[#081018] p-7 shadow-[0_0_80px_rgba(0,0,0,0.65)]">
-                            <div className="mb-7 flex items-start justify-between">
-                                <div>
-                                    <h2 className="text-2xl font-semibold text-white">
-                                        Sacar valor
-                                    </h2>
+                        <div className="mt-6 flex gap-3">
+                            <button
+                                onClick={() => setModalOpen(false)}
+                                className="h-11 flex-1 rounded-2xl border border-white/10 text-sm text-zinc-300 transition hover:bg-white/5"
+                            >
+                                Cancelar
+                            </button>
 
-                                    <p className="mt-3 text-sm text-zinc-400">
-                                        O valor será enviado para o Porquinho Bets.
-                                    </p>
-                                </div>
-
-                                <button
-                                    onClick={() => setWithdrawModalOpen(false)}
-                                    className="rounded-lg p-2 text-zinc-400 transition hover:bg-white/5 hover:text-white"
-                                >
-                                    <X size={24} />
-                                </button>
-                            </div>
-
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-[70px_1fr] items-center gap-4">
-                                    <label className="text-base text-zinc-400">Conta</label>
-
-                                    <div className="flex h-16 items-center justify-between rounded-xl border border-zinc-700 bg-[#0b1319] px-5">
-                                        <div className="relative h-8 w-28">
-                                            <Image
-                                                src={
-                                                    accounts.find((item) => item.id === withdrawAccountId)
-                                                        ?.logo || "/icons/inter.png"
-                                                }
-                                                alt="Conta saque"
-                                                fill
-                                                className="object-contain object-left"
-                                            />
-                                        </div>
-
-                                        <span className="text-lg font-semibold text-white">
-                                            {formatBRL(
-                                                accounts.find((item) => item.id === withdrawAccountId)
-                                                    ?.balance || 0
-                                            )}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-[70px_1fr] items-center gap-4">
-                                    <label className="text-base text-zinc-400">Valor</label>
-
-                                    <div className="flex h-14 overflow-hidden rounded-xl border border-zinc-700 bg-[#0b1319] transition focus-within:border-emerald-500">
-                                        <div className="flex w-16 items-center justify-center border-r border-zinc-700 text-sm font-semibold text-white">
-                                            R$
-                                        </div>
-
-                                        <input
-                                            value={withdrawAmount}
-                                            onChange={(event) => setWithdrawAmount(event.target.value)}
-                                            placeholder="0,00"
-                                            className="w-full bg-transparent px-4 text-sm text-white outline-none placeholder:text-zinc-600"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-4 gap-3 pl-[86px]">
-                                    {["50", "100", "200"].map((value) => (
-                                        <button
-                                            key={value}
-                                            onClick={() => setWithdrawAmount(value)}
-                                            className="h-12 rounded-lg border border-zinc-700 text-sm text-zinc-200 transition hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-400"
-                                        >
-                                            + R$ {value}
-                                        </button>
-                                    ))}
-
-                                    <button
-                                        onClick={() => {
-                                            const account = accounts.find(
-                                                (item) => item.id === withdrawAccountId
-                                            );
-
-                                            setWithdrawAmount(
-                                                String(account?.balance || 0).replace(".", ",")
-                                            );
-                                        }}
-                                        className="h-12 rounded-lg border border-zinc-700 text-sm text-zinc-200 transition hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-400"
-                                    >
-                                        Máx.
-                                    </button>
-                                </div>
-
-                            </div>
-
-                            <div className="mt-7 flex justify-end gap-4">
-                                <button
-                                    onClick={() => setWithdrawModalOpen(false)}
-                                    className="h-14 rounded-xl border border-zinc-700 px-9 text-sm font-medium text-zinc-200 transition hover:bg-white/5 hover:text-white"
-                                >
-                                    Cancelar
-                                </button>
-
-                                <button
-                                    onClick={confirmWithdraw}
-                                    className="flex h-14 items-center gap-3 rounded-xl bg-emerald-600 px-9 text-sm font-semibold text-white transition hover:bg-emerald-500"
-                                >
-                                    <Landmark size={18} />
-                                    Sacar
-                                </button>
-                            </div>
+                            <button
+                                onClick={saveMovement}
+                                disabled={saving}
+                                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-cyan-400 text-sm font-semibold text-black transition hover:bg-cyan-300 disabled:opacity-60"
+                            >
+                                {saving && <Loader2 size={16} className="animate-spin" />}
+                                Salvar
+                            </button>
                         </div>
                     </div>
-                )
-            }
+                </div>
+            )}
+        </main>
+    );
+}
 
-            {
-                profitModalOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-                        <div className="w-full max-w-[520px] rounded-2xl border border-zinc-700 bg-[#081018] p-7 shadow-[0_0_80px_rgba(0,0,0,0.65)]">
-                            <div className="mb-7 flex items-start justify-between">
-                                <div>
-                                    <h2 className="text-2xl font-semibold text-white">
-                                        {profitMode === "deposit" ? "Adicionar depósito" : "Adicionar lucro"}
-                                    </h2>
+function Panel({
+    title,
+    action,
+    children,
+}: {
+    title: string;
+    action?: React.ReactNode;
+    children: React.ReactNode;
+}) {
+    return (
+        <section className="rounded-3xl border border-white/10 bg-[#081018]/90 p-5">
+            <div className="mb-5 flex items-center justify-between gap-4">
+                <h3 className="text-lg font-semibold">{title}</h3>
+                {action}
+            </div>
 
-                                    <p className="mt-3 text-sm text-zinc-400">
-                                        {profitMode === "deposit"
-                                            ? "Adicione um valor externo nesta conta."
-                                            : "Adicione um valor de lucro diretamente nesta conta."}
-                                    </p>
-                                </div>
+            {children}
+        </section>
+    );
+}
 
-                                <button
-                                    onClick={() => setProfitModalOpen(false)}
-                                    className="rounded-lg p-2 text-zinc-400 transition hover:bg-white/5 hover:text-white"
-                                >
-                                    <X size={24} />
-                                </button>
-                            </div>
+function TopCard({
+    title,
+    value,
+    helper,
+    icon,
+    variant,
+}: {
+    title: string;
+    value: string;
+    helper: string;
+    icon: React.ReactNode;
+    variant: "green" | "red" | "purple";
+}) {
+    const variants = {
+        green: "bg-emerald-400/10 text-emerald-300",
+        red: "bg-red-400/10 text-red-300",
+        purple: "bg-purple-400/10 text-purple-300",
+    };
 
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-[70px_1fr] items-center gap-4">
-                                    <label className="text-base text-zinc-400">Conta</label>
+    const valueColor = variant === "red" ? "text-red-400" : "text-emerald-400";
 
-                                    <div className="flex h-16 items-center justify-between rounded-xl border border-zinc-700 bg-[#0b1319] px-5">
-                                        <div className="relative h-8 w-28">
-                                            <Image
-                                                src={
-                                                    accounts.find((item) => item.id === profitAccountId)
-                                                        ?.logo || "/icons/inter.png"
-                                                }
-                                                alt="Conta lucro"
-                                                fill
-                                                className="object-contain object-left"
-                                            />
-                                        </div>
+    return (
+        <div className="rounded-3xl border border-white/10 bg-[#081018]/90 p-5">
+            <div className="flex items-center gap-4">
+                <div
+                    className={`flex h-14 w-14 items-center justify-center rounded-2xl ${variants[variant]}`}
+                >
+                    {icon}
+                </div>
 
-                                        <span className="text-lg font-semibold text-white">
-                                            {formatBRL(
-                                                accounts.find((item) => item.id === profitAccountId)
-                                                    ?.balance || 0
-                                            )}
-                                        </span>
-                                    </div>
-                                </div>
+                <div>
+                    <p className="text-sm text-zinc-300">{title}</p>
+                    <strong className={`mt-2 block text-2xl font-semibold ${valueColor}`}>
+                        {value}
+                    </strong>
+                    <p className="mt-2 text-xs text-zinc-500">{helper}</p>
+                </div>
+            </div>
+        </div>
+    );
+}
 
-                                <div className="grid grid-cols-[70px_1fr] items-center gap-4">
-                                    <label className="text-base text-zinc-400">Valor</label>
-
-                                    <div className="flex h-14 overflow-hidden rounded-xl border border-zinc-700 bg-[#0b1319] transition focus-within:border-emerald-500">
-                                        <div className="flex w-16 items-center justify-center border-r border-zinc-700 text-sm font-semibold text-white">
-                                            R$
-                                        </div>
-
-                                        <input
-                                            value={profitAmount}
-                                            onChange={(event) => setProfitAmount(event.target.value)}
-                                            placeholder="0,00"
-                                            className="w-full bg-transparent px-4 text-sm text-white outline-none placeholder:text-zinc-600"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-4 gap-3 pl-[86px]">
-                                    {["50", "100", "200"].map((value) => (
-                                        <button
-                                            key={value}
-                                            onClick={() => setProfitAmount(value)}
-                                            className="h-12 rounded-lg border border-zinc-700 text-sm text-zinc-200 transition hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-400"
-                                        >
-                                            + R$ {value}
-                                        </button>
-                                    ))}
-
-                                    <button
-                                        onClick={() => {
-                                            const account = accounts.find(
-                                                (item) => item.id === profitAccountId
-                                            );
-
-                                            setProfitAmount(
-                                                String(account?.balance || 0).replace(".", ",")
-                                            );
-                                        }}
-                                        className="h-12 rounded-lg border border-zinc-700 text-sm text-zinc-200 transition hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-400"
-                                    >
-                                        Saldo
-                                    </button>
-                                </div>
-                                {profitMode === "profit" && (
-                                    <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-zinc-200">
-                                        <input
-                                            type="checkbox"
-                                            checked={isLoss}
-                                            onChange={(event) => setIsLoss(event.target.checked)}
-                                            className="h-4 w-4 accent-red-500"
-                                        />
-
-                                        Registrar como perda
-                                    </label>
-                                )}
-                            </div>
-
-                            <div className="mt-7 flex justify-end gap-4">
-                                <button
-                                    onClick={() => setProfitModalOpen(false)}
-                                    className="h-14 rounded-xl border border-zinc-700 px-9 text-sm font-medium text-zinc-200 transition hover:bg-white/5 hover:text-white"
-                                >
-                                    Cancelar
-                                </button>
-
-                                <button
-                                    onClick={confirmProfit}
-                                    className="flex h-14 items-center gap-3 rounded-xl bg-emerald-600 px-9 text-sm font-semibold text-white transition hover:bg-emerald-500"
-                                >
-                                    <Plus size={18} />
-                                    Adicionar
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-            {
-                actionsModalOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-                        <div className="w-full max-w-[520px] rounded-2xl border border-zinc-700 bg-[#081018] p-7 shadow-[0_0_80px_rgba(0,0,0,0.65)]">
-                            <div className="mb-7 flex items-start justify-between">
-                                <div>
-                                    <h2 className="text-2xl font-semibold text-white">
-                                        Movimentar conta
-                                    </h2>
-
-                                    <p className="mt-3 text-sm text-zinc-400">
-                                        Escolha o tipo de movimentação para esta conta.
-                                    </p>
-                                </div>
-
-                                <button
-                                    onClick={() => {
-                                        setActionsModalOpen(false);
-                                        setActionsAccountId("");
-                                    }}
-                                    className="rounded-lg p-2 text-zinc-400 transition hover:bg-white/5 hover:text-white"
-                                >
-                                    <X size={24} />
-                                </button>
-                            </div>
-
-                            <div className="mb-6 flex h-16 items-center justify-between rounded-xl border border-zinc-700 bg-[#0b1319] px-5">
-                                <div className="relative h-8 w-32">
-                                    <Image
-                                        src={
-                                            accounts.find((item) => item.id === actionsAccountId)?.logo ||
-                                            "/icons/inter.png"
-                                        }
-                                        alt="Conta"
-                                        fill
-                                        className="object-contain object-left"
-                                    />
-                                </div>
-
-                                <span className="text-lg font-semibold text-white">
-                                    {formatBRL(
-                                        accounts.find((item) => item.id === actionsAccountId)?.balance || 0
-                                    )}
-                                </span>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <button
-                                    onClick={() => {
-                                        setProfitMode("profit");
-                                        setIsLoss(false);
-                                        setProfitAccountId(actionsAccountId);
-                                        setProfitAmount("");
-                                        setActionsModalOpen(false);
-                                        setProfitModalOpen(true);
-                                    }}
-                                    className="
-            flex min-h-[120px] flex-col items-start justify-between rounded-2xl
-            border border-emerald-500/30 bg-emerald-500/10 p-5 text-left
-            transition-all duration-300 hover:border-emerald-400/60
-            hover:bg-emerald-500/15 hover:shadow-[0_0_28px_rgba(16,185,129,0.18)]
-        "
-                                >
-                                    <TrendingUp size={24} className="text-emerald-400" />
-
-                                    <div>
-                                        <p className="text-sm font-semibold text-emerald-300">Lucro</p>
-                                        <p className="mt-1 text-xs text-emerald-500/70">
-                                            Adicionar ganho
-                                        </p>
-                                    </div>
-                                </button>
-
-                                <button
-                                    onClick={() => {
-                                        setProfitMode("deposit");
-                                        setIsLoss(false);
-                                        setProfitAccountId(actionsAccountId);
-                                        setProfitAmount("");
-                                        setActionsModalOpen(false);
-                                        setProfitModalOpen(true);
-                                    }}
-                                    className="
-            flex min-h-[120px] flex-col items-start justify-between rounded-2xl
-            border border-violet-500/30 bg-violet-500/10 p-5 text-left
-            transition-all duration-300 hover:border-violet-400/60
-            hover:bg-violet-500/15 hover:shadow-[0_0_28px_rgba(139,92,246,0.18)]
-        "
-                                >
-                                    <ArrowDownToLine size={24} className="text-violet-400" />
-
-                                    <div>
-                                        <p className="text-sm font-semibold text-violet-300">Depósito</p>
-                                        <p className="mt-1 text-xs text-violet-400/70">
-                                            Entrada externa
-                                        </p>
-                                    </div>
-                                </button>
-
-                                <button
-                                    onClick={() => {
-                                        openTransfer(actionsAccountId);
-                                        setActionsModalOpen(false);
-                                    }}
-                                    className="
-            flex min-h-[120px] flex-col items-start justify-between rounded-2xl
-            border border-sky-500/30 bg-sky-500/10 p-5 text-left
-            transition-all duration-300 hover:border-sky-400/60
-            hover:bg-sky-500/15 hover:shadow-[0_0_28px_rgba(14,165,233,0.18)]
-        "
-                                >
-                                    <ArrowRightLeft size={24} className="text-sky-400" />
-
-                                    <div>
-                                        <p className="text-sm font-semibold text-sky-300">Transferir</p>
-                                        <p className="mt-1 text-xs text-sky-400/70">
-                                            Entre contas
-                                        </p>
-                                    </div>
-                                </button>
-
-                                <button
-                                    onClick={() => {
-                                        setWithdrawAccountId(actionsAccountId);
-                                        setWithdrawAmount("");
-                                        setActionsModalOpen(false);
-                                        setWithdrawModalOpen(true);
-                                    }}
-                                    className="
-            flex min-h-[120px] flex-col items-start justify-between rounded-2xl
-            border border-red-500/30 bg-red-500/10 p-5 text-left
-            transition-all duration-300 hover:border-red-400/60
-            hover:bg-red-500/15 hover:shadow-[0_0_28px_rgba(239,68,68,0.18)]
-        "
-                                >
-                                    <ArrowUpToLine size={24} className="text-red-400" />
-
-                                    <div>
-                                        <p className="text-sm font-semibold text-red-300">Sacar</p>
-                                        <p className="mt-1 text-xs text-red-400/70">
-                                            Enviar ao Porquinho
-                                        </p>
-                                    </div>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                )
-            }
-            {
-                historyModalOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-                        <div className="w-full max-w-[700px] rounded-2xl border border-zinc-700 bg-[#081018] p-7 shadow-[0_0_80px_rgba(0,0,0,0.65)]">
-                            <div className="mb-7 flex items-start justify-between">
-                                <div>
-                                    <h2 className="text-2xl font-semibold text-white">
-                                        Histórico da conta
-                                    </h2>
-
-                                    <p className="mt-2 text-sm text-zinc-400">
-                                        {historyAccount?.name}
-                                    </p>
-                                </div>
-
-                                <button
-                                    onClick={() => setHistoryModalOpen(false)}
-                                    className="rounded-lg p-2 text-zinc-400 transition hover:bg-white/5 hover:text-white"
-                                >
-                                    <X size={24} />
-                                </button>
-                            </div>
-
-                            <div className="max-h-[500px] space-y-3 overflow-y-auto pr-1">
-                                {filteredTransactions.length === 0 ? (
-                                    <div className="flex h-[180px] items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10">
-                                        <p className="text-sm text-zinc-500">
-                                            Nenhuma movimentação encontrada.
-                                        </p>
-                                    </div>
-                                ) : (
-                                    filteredTransactions.map((transaction) => (
-                                        <div
-                                            key={transaction.id}
-                                            className="flex items-center justify-between rounded-xl border border-white/10 bg-[#0b1319] px-5 py-4"
-                                        >
-                                            <div>
-                                                <p className="text-sm font-medium text-white">
-                                                    {transaction.type === "transfer"
-                                                        ? `${transaction.from_account} → ${transaction.to_account}`
-                                                        : transaction.type === "withdraw"
-                                                            ? `Saque para Porquinho`
-                                                            : transaction.type === "deposit"
-                                                                ? `Depósito em ${transaction.to_account}`
-                                                                : transaction.amount < 0
-                                                                    ? `Perda registrada`
-                                                                    : `Lucro registrado`}
-                                                </p>
-
-                                                <p className="mt-1 text-xs text-zinc-500">
-                                                    {new Date(
-                                                        transaction.created_at
-                                                    ).toLocaleDateString("pt-BR")}
-                                                </p>
-                                            </div>
-
-                                            <strong
-                                                className={
-                                                    transaction.type === "withdraw"
-                                                        ? "text-red-400"
-                                                        : transaction.amount < 0
-                                                            ? "text-red-400"
-                                                            : transaction.type === "deposit"
-                                                                ? "text-violet-400"
-                                                                : transaction.type === "transfer"
-                                                                    ? "text-sky-400"
-                                                                    : "text-emerald-400"
-                                                }
-                                            >
-                                                {transaction.type === "transfer"
-                                                    ? ""
-                                                    : transaction.amount < 0
-                                                        ? "-"
-                                                        : "+"}
-                                                {formatBRL(
-                                                    Math.abs(Number(transaction.amount))
-                                                )}
-                                            </strong>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-        </main >
+function Legend({ color, label }: { color: string; label: string }) {
+    return (
+        <div className="flex items-center gap-2 text-zinc-300">
+            <span className={`h-3 w-3 rounded-full ${color}`} />
+            {label}
+        </div>
     );
 }

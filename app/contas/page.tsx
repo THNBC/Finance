@@ -23,7 +23,14 @@ import {
     X,
     XCircle,
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import {
+    loadAccountsData,
+    updateBankAccountBalance,
+    saveCreditCardSettings,
+    payCreditCardInvoice,
+    cancelCreditCardInvoicePayment,
+} from "@/services/accountsService";
+import { formatBRL } from "@/lib/formatters";
 
 import {
     ResponsiveContainer,
@@ -54,8 +61,9 @@ type CardTransaction = {
     category: string | null;
     payment_method: string | null;
     type: "income" | "expense";
+    invoice_month?: number | null;
+    invoice_year?: number | null;
 };
-
 type BankAccount = {
     id: string;
     bank_name: string;
@@ -70,6 +78,7 @@ type InvoicePayment = {
     amount: number;
     paid_at: string;
 };
+
 type CardWithInvoice = CreditCardData & {
     invoice: number;
     nextInvoice: number;
@@ -104,13 +113,6 @@ const defaultCards: CreditCardData[] = [
     },
 ];
 
-function formatBRL(value: number) {
-    return Number(value || 0).toLocaleString("pt-BR", {
-        style: "currency",
-        currency: "BRL",
-    });
-}
-
 function formatDate(date?: string | null) {
     if (!date) return "—";
 
@@ -123,94 +125,50 @@ function formatDueDay(day?: number | string | null) {
     return `Dia ${day}`;
 }
 
-function isCurrentMonth(date: string) {
-    const now = new Date();
-    const transactionDate = new Date(date + "T00:00:00");
-
-    return (
-        transactionDate.getMonth() === now.getMonth() &&
-        transactionDate.getFullYear() === now.getFullYear()
-    );
-}
-
-function belongsToInvoice(
-    transactionDate: string,
-    closingDay: number
-) {
-    const date = new Date(transactionDate + "T00:00:00");
-
-    const today = new Date();
-
-    const currentMonth = today.getMonth();
-    const currentYear = today.getFullYear();
-
-    const transactionDay = date.getDate();
-
-    let invoiceMonth = date.getMonth();
-    let invoiceYear = date.getFullYear();
-
-    if (transactionDay > closingDay) {
-        invoiceMonth += 1;
-
-        if (invoiceMonth > 11) {
-            invoiceMonth = 0;
-            invoiceYear += 1;
-        }
-    }
-
-    return (
-        invoiceMonth === currentMonth &&
-        invoiceYear === currentYear
-    );
-}
-function getCurrentInvoicePeriod(closingDay: number, dueDay: number | null) {
+function getCurrentInvoicePeriod(closingDay: number, dueDay: number | null, cardId: string, invoicePayments: InvoicePayment[]) {
     const today = new Date();
     const currentDay = today.getDate();
 
-    let invoiceMonth = today.getMonth();
-    let invoiceYear = today.getFullYear();
+    // Começamos assumindo o mês e ano civil atual
+    let targetMonth = today.getMonth() + 1;
+    let targetYear = today.getFullYear();
 
-    if (dueDay && currentDay > dueDay) {
-        invoiceMonth += 1;
+    // Se hoje ainda é antes ou igual ao dia de vencimento (ex: dia 15)
+    if (dueDay && currentDay <= dueDay) {
+        // Precisamos checar se a fatura do mês REFERENTE ao mês passado está paga
+        // Se a fatura de Maio (referência mês 4) NÃO foi paga, mantemos ela ativa na tela
+        const previousMonth = targetMonth === 1 ? 12 : targetMonth - 1;
+        const previousYear = targetMonth === 1 ? targetYear - 1 : targetYear;
 
-        if (invoiceMonth > 11) {
-            invoiceMonth = 0;
-            invoiceYear += 1;
+        const isPreviousPaid = invoicePayments.some(
+            (payment) =>
+                payment.card_id === cardId &&
+                payment.invoice_month === previousMonth &&
+                payment.invoice_year === previousYear
+        );
+
+        if (!isPreviousPaid) {
+            // Se não está paga, a fatura ativa na tela deve continuar sendo a do mês passado!
+            targetMonth = previousMonth;
+            targetYear = previousYear;
+        }
+    } else if (dueDay && currentDay > dueDay) {
+        // Se já passou do dia 15, naturalmente a fatura vira para o próximo ciclo
+        targetMonth += 1;
+
+        if (targetMonth > 12) {
+            targetMonth = 1;
+            targetYear += 1;
         }
     }
 
     return {
-        invoiceMonth,
-        invoiceYear,
+        invoiceMonth: targetMonth,
+        invoiceYear: targetYear,
     };
 }
 
-function transactionBelongsToInvoicePeriod(
-    transactionDate: string,
-    closingDay: number,
-    invoiceMonth: number,
-    invoiceYear: number
-) {
-    const date = new Date(transactionDate + "T00:00:00");
-    const transactionDay = date.getDate();
 
-    let transactionInvoiceMonth = date.getMonth();
-    let transactionInvoiceYear = date.getFullYear();
-
-    if (transactionDay > closingDay) {
-        transactionInvoiceMonth += 1;
-
-        if (transactionInvoiceMonth > 11) {
-            transactionInvoiceMonth = 0;
-            transactionInvoiceYear += 1;
-        }
-    }
-
-    return (
-        transactionInvoiceMonth === invoiceMonth &&
-        transactionInvoiceYear === invoiceYear
-    );
-}
 function getBankLogo(bankName: string) {
     const normalized = bankName.toLowerCase();
 
@@ -314,7 +272,17 @@ export default function CardsPage() {
         type: "success" | "error";
         message: string;
     } | null>(null);
+    const accountBalance = useMemo(() => {
+        return transactions.reduce((sum, transaction) => {
+            if (transaction.payment_method === "credit_card") return sum;
 
+            if (transaction.type === "income") {
+                return sum + Number(transaction.amount);
+            }
+
+            return sum - Number(transaction.amount);
+        }, 0);
+    }, [transactions]);
     function showToast(type: "success" | "error", message: string) {
         setToast({ type, message });
 
@@ -328,203 +296,75 @@ export default function CardsPage() {
             return;
         }
 
-        const { data: accountData, error: accountError } = await supabase
-            .from("bank_accounts")
-            .select("balance")
-            .eq("id", "caixa")
-            .single();
-
-        if (accountError) {
-            console.log("ERRO AO BUSCAR SALDO DA CAIXA:", accountError);
-            showToast("error", "Erro ao buscar saldo da Caixa.");
-            return;
-        }
-
-        const currentBalance = Number(accountData?.balance ?? 0);
-        const newBalance = currentBalance - Number(card.invoice);
-
-        const { error: balanceError } = await supabase
-            .from("bank_accounts")
-            .update({
-                balance: newBalance,
-                updated_at: new Date().toISOString(),
-            })
-            .eq("id", "caixa");
-
-        if (balanceError) {
-            console.log("ERRO AO DEBITAR FATURA DA CAIXA:", balanceError);
-            showToast("error", "Erro ao debitar fatura da Caixa.");
-            return;
-        }
-
-        const { error } = await supabase
-            .from("credit_card_invoice_payments")
-            .upsert(
-                {
-                    card_id: card.id,
-                    invoice_month: card.invoiceMonth,
-                    invoice_year: card.invoiceYear,
-                    amount: card.invoice,
-                    paid_at: new Date().toISOString(),
-                },
-                {
-                    onConflict: "card_id,invoice_month,invoice_year",
-                }
-            );
-
-        if (error) {
-            console.log("ERRO AO PAGAR FATURA:", error);
-            showToast("error", "Erro ao pagar fatura.");
-            return;
-        }
-        const { error: transactionError } = await supabase
-            .from("transactions")
-            .insert({
-                title: `Fatura do cartão ${card.bank_name} paga`,
+        try {
+            await payCreditCardInvoice({
+                cardId: card.id,
+                bankName: card.bank_name,
+                invoiceMonth: card.invoiceMonth,
+                invoiceYear: card.invoiceYear,
                 amount: card.invoice,
-                transaction_date: new Date().toISOString().slice(0, 10),
-                category: "Fatura",
-                payment_method: "credit_card_invoice",
-                type: "expense",
-                card_id: card.id,
             });
 
-        if (transactionError) {
-            console.log("ERRO AO REGISTRAR FATURA NO HISTÓRICO:", transactionError);
+            setPayInvoiceCard(null);
+            await loadCards();
+            showToast("success", "Fatura paga e saldo debitado com sucesso.");
+        } catch (error) {
+            console.error(error);
+            showToast("error", "Erro ao pagar fatura.");
         }
-        setPayInvoiceCard(null);
-        await loadCards();
-        showToast("success", "Fatura paga e saldo debitado com sucesso.");
     }
 
     async function handleCancelInvoicePayment(card: CardWithInvoice) {
-        const { data: paidInvoice, error: paidInvoiceError } = await supabase
-            .from("credit_card_invoice_payments")
-            .select("amount")
-            .eq("card_id", card.id)
-            .eq("invoice_month", card.invoiceMonth)
-            .eq("invoice_year", card.invoiceYear)
-            .single();
+        try {
+            await cancelCreditCardInvoicePayment({
+                cardId: card.id,
+                invoiceMonth: card.invoiceMonth,
+                invoiceYear: card.invoiceYear,
+            });
 
-        if (paidInvoiceError) {
-            console.log("ERRO AO BUSCAR FATURA PAGA:", paidInvoiceError);
-            showToast("error", "Erro ao buscar pagamento da fatura.");
-            return;
+            setPayInvoiceCard(null);
+            await loadCards();
+            showToast("success", "Pagamento cancelado e valor devolvido para a Caixa.");
+        } catch (error) {
+            console.error(error);
+            showToast("error", "Erro ao cancelar pagamento.");
         }
-
-        const { data: accountData, error: accountError } = await supabase
-            .from("bank_accounts")
-            .select("balance")
-            .eq("id", "caixa")
-            .single();
-
-        if (accountError) {
-            console.log("ERRO AO BUSCAR SALDO DA CAIXA:", accountError);
-            showToast("error", "Erro ao buscar saldo da Caixa.");
-            return;
-        }
-
-        const currentBalance = Number(accountData?.balance ?? 0);
-        const paidAmount = Number(paidInvoice?.amount ?? 0);
-
-        const { error: balanceError } = await supabase
-            .from("bank_accounts")
-            .update({
-                balance: currentBalance + paidAmount,
-                updated_at: new Date().toISOString(),
-            })
-            .eq("id", "caixa");
-
-        if (balanceError) {
-            console.log("ERRO AO DEVOLVER VALOR PARA A CAIXA:", balanceError);
-            showToast("error", "Erro ao devolver valor para a Caixa.");
-            return;
-        }
-
-        const { error } = await supabase
-            .from("credit_card_invoice_payments")
-            .delete()
-            .eq("card_id", card.id)
-            .eq("invoice_month", card.invoiceMonth)
-            .eq("invoice_year", card.invoiceYear);
-
-        if (error) {
-            console.log("ERRO AO CANCELAR PAGAMENTO DA FATURA:", error);
-            showToast("error", "Erro ao cancelar pagamento da fatura.");
-            return;
-        }
-        const { error: historyError } = await supabase
-            .from("transactions")
-            .delete()
-            .eq("card_id", card.id)
-            .eq("payment_method", "credit_card_invoice")
-            .eq("category", "Fatura");
-
-        if (historyError) {
-            console.log("ERRO AO REMOVER FATURA DO HISTÓRICO:", historyError);
-        }
-        setPayInvoiceCard(null);
-        await loadCards();
-        showToast("success", "Pagamento cancelado e valor devolvido para a Caixa.");
     }
 
     async function loadCards() {
-        setLoading(true);
+        try {
+            setLoading(true);
 
-        const [
-            { data: settingsData },
-            { data: transactionsData, error: transactionsError },
-            { data: paymentsData, error: paymentsError },
-            { data: accountData, error: accountError },
-        ] = await Promise.all([
-            supabase.from("credit_card_settings").select("*"),
-            supabase
-                .from("transactions")
-                .select(
-                    "id, card_id, title, amount, transaction_date, category, payment_method, type"
-                )
-                .eq("type", "expense")
-                .eq("payment_method", "credit_card")
-                .order("transaction_date", { ascending: false }),
-            supabase
-                .from("credit_card_invoice_payments")
-                .select("*"),
-            supabase
-                .from("bank_accounts")
-                .select("*")
-                .eq("id", "caixa")
-                .single(),
-        ]);
+            const {
+                settingsData,
+                transactionsData,
+                paymentsData,
+                accountData,
+            } = await loadAccountsData();
 
-        if (transactionsError) {
-            console.log("ERRO AO BUSCAR TRANSAÇÕES DO CARTÃO:", transactionsError);
+            const settings = (settingsData ?? []) as CreditCardData[];
+
+            const mergedCards = defaultCards.map((card) => {
+                const saved = settings.find((item) => item.id === card.id);
+
+                return {
+                    ...card,
+                    ...saved,
+                    bank_name: card.bank_name,
+                    color: card.color,
+                };
+            });
+
+            setCards(mergedCards);
+            setTransactions((transactionsData ?? []) as CardTransaction[]);
+            setInvoicePayments((paymentsData ?? []) as InvoicePayment[]);
+            setMainAccount(accountData as BankAccount);
+        } catch (error) {
+            console.error(error);
+            showToast("error", "Erro ao carregar cartões.");
+        } finally {
+            setLoading(false);
         }
-
-        if (paymentsError) {
-            console.log("ERRO AO BUSCAR FATURAS PAGAS:", paymentsError);
-        }
-        if (accountError) {
-            console.log("ERRO AO BUSCAR CONTA CAIXA:", accountError);
-        }
-
-        const settings = (settingsData ?? []) as CreditCardData[];
-
-        const mergedCards = defaultCards.map((card) => {
-            const saved = settings.find((item) => item.id === card.id);
-
-            return {
-                ...card,
-                ...saved,
-                bank_name: card.bank_name,
-                color: card.color,
-            };
-        });
-
-        setCards(mergedCards);
-        setTransactions((transactionsData ?? []) as CardTransaction[]);
-        setInvoicePayments((paymentsData ?? []) as InvoicePayment[]);
-        setMainAccount(accountData as BankAccount);
-        setLoading(false);
     }
 
     useEffect(() => {
@@ -532,56 +372,33 @@ export default function CardsPage() {
     }, []);
 
     const cardsWithInvoice = useMemo(() => {
-        const now = new Date();
-        const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
 
         return cards.map((card) => {
             const cardTransactions = transactions.filter(
-                (transaction) => transaction.card_id === card.id
+                (transaction) =>
+                    transaction.card_id === card.id &&
+                    transaction.payment_method === "credit_card"
             );
 
             const closingDay = card.closing_day ?? 9;
 
+            // Alterado: Passando os parâmetros necessários para validar se o mês anterior está pago
             const { invoiceMonth, invoiceYear } =
-                getCurrentInvoicePeriod(closingDay, card.due_day);
+                getCurrentInvoicePeriod(closingDay, card.due_day, card.id, invoicePayments);
 
-            const today = new Date();
 
-            const lastClosingDate = new Date(
-                today.getFullYear(),
-                today.getMonth(),
-                closingDay
-            );
 
-            if (today.getDate() <= closingDay) {
-                lastClosingDate.setMonth(lastClosingDate.getMonth() - 1);
-            }
+            // Correção: O início do período da fatura atual se baseia no invoiceMonth/invoiceYear calculados
 
-            const currentInvoiceStartDate = new Date(
-                today.getFullYear(),
-                today.getMonth(),
-                closingDay + 1
-            );
-
-            const currentInvoiceEndDate = new Date(
-                today.getFullYear(),
-                today.getMonth() + 1,
-                closingDay
-            );
-
-            currentInvoiceEndDate.setHours(23, 59, 59, 999);
 
             const currentMonthPurchases = cardTransactions.filter((transaction) => {
-                const transactionDate = new Date(
-                    transaction.transaction_date + "T00:00:00"
-                );
-
                 return (
-                    transactionDate >= currentInvoiceStartDate &&
-                    transactionDate <= currentInvoiceEndDate
+                    transaction.payment_method === "credit_card" &&
+                    transaction.invoice_month === invoiceMonth &&
+                    transaction.invoice_year === invoiceYear
                 );
             });
-
 
             const paidInvoice = invoicePayments.find(
                 (payment) =>
@@ -593,45 +410,33 @@ export default function CardsPage() {
             const paidAt = paidInvoice
                 ? new Date(paidInvoice.paid_at)
                 : null;
+
             const openInvoicePurchases = paidAt
                 ? currentMonthPurchases.filter((transaction) => {
                     const transactionDate = new Date(transaction.transaction_date + "T00:00:00");
                     return transactionDate > paidAt;
                 })
                 : currentMonthPurchases;
-            const pendingLimitTransactions = cardTransactions.filter((transaction) => {
-                const transactionDate = new Date(
-                    transaction.transaction_date + "T00:00:00"
-                );
 
-                return transactionDate >= currentMonthStart;
-            });
+
 
             const invoice = openInvoicePurchases.reduce(
                 (sum, transaction) => sum + Number(transaction.amount),
                 0
             );
 
-            const nextInvoiceStartDate = new Date(
-                today.getFullYear(),
-                today.getMonth() + 1,
-                closingDay + 1
-            );
+            // Correção: A próxima fatura começa logo após o término da atual calculada
 
-            const nextInvoiceEndDate = new Date(
-                today.getFullYear(),
-                today.getMonth() + 2,
-                closingDay
-            );
+
+            const nextMonth = invoiceMonth === 12 ? 1 : invoiceMonth + 1;
+            const nextYear = invoiceMonth === 12 ? invoiceYear + 1 : invoiceYear;
 
             const nextInvoicePurchases = cardTransactions.filter((transaction) => {
-                const transactionDate = new Date(
-                    transaction.transaction_date + "T00:00:00"
-                );
 
                 return (
-                    transactionDate >= nextInvoiceStartDate &&
-                    transactionDate <= nextInvoiceEndDate
+                    transaction.payment_method === "credit_card" &&
+                    transaction.invoice_month === nextMonth &&
+                    transaction.invoice_year === nextYear
                 );
             });
 
@@ -640,16 +445,43 @@ export default function CardsPage() {
                 0
             );
 
-            const paidAmount = invoicePayments
-                .filter((payment) => payment.card_id === card.id)
-                .reduce((sum, payment) => sum + Number(payment.amount), 0);
+            const paidInvoices = [
+                ...invoicePayments.filter((payment) => payment.card_id === card.id),
+                ...transactions
+                    .filter(
+                        (transaction) =>
+                            transaction.card_id === card.id &&
+                            transaction.payment_method === "credit_card_invoice" &&
+                            transaction.invoice_month &&
+                            transaction.invoice_year
+                    )
+                    .map((transaction) => ({
+                        id: transaction.id,
+                        card_id: transaction.card_id as string,
+                        invoice_month: transaction.invoice_month as number,
+                        invoice_year: transaction.invoice_year as number,
+                        amount: Number(transaction.amount),
+                        paid_at: transaction.transaction_date,
+                    })),
+            ];
 
-            const grossUsedLimit = pendingLimitTransactions.reduce(
+            const usedLimitTransactions = cardTransactions.filter((transaction) => {
+                if (transaction.payment_method !== "credit_card") return false;
+                if (!transaction.invoice_month || !transaction.invoice_year) return false;
+
+                const invoiceIsPaid = paidInvoices.some(
+                    (payment) =>
+                        payment.invoice_month === transaction.invoice_month &&
+                        payment.invoice_year === transaction.invoice_year
+                );
+
+                return !invoiceIsPaid;
+            });
+
+            const usedLimit = usedLimitTransactions.reduce(
                 (sum, transaction) => sum + Number(transaction.amount),
                 0
             );
-
-            const usedLimit = Math.max(grossUsedLimit - paidAmount, 0);
 
             const limit = Number(card.total_limit || 0);
             const available = Math.max(limit - usedLimit, 0);
@@ -717,32 +549,29 @@ export default function CardsPage() {
             const month = date.getMonth();
             const year = date.getFullYear();
 
+            // Buscando as configurações de fechamento de cada cartão dinamicamente
+
+
+            // Filtra transações do Inter que pertencem ao ciclo desta fatura específica
             const interTotal = transactions
                 .filter((transaction) => {
-                    if (transaction.card_id !== "inter") return false;
-
-                    const transactionDate = new Date(
-                        transaction.transaction_date + "T00:00:00"
-                    );
-
                     return (
-                        transactionDate.getMonth() === month &&
-                        transactionDate.getFullYear() === year
+                        transaction.card_id === "inter" &&
+                        transaction.payment_method === "credit_card" &&
+                        transaction.invoice_month === month + 1 &&
+                        transaction.invoice_year === year
                     );
                 })
                 .reduce((sum, transaction) => sum + Number(transaction.amount), 0);
 
+            // Filtra transações do Mercado Pago que pertencem ao ciclo desta fatura específica
             const mercadoPagoTotal = transactions
                 .filter((transaction) => {
-                    if (transaction.card_id !== "mercado-pago") return false;
-
-                    const transactionDate = new Date(
-                        transaction.transaction_date + "T00:00:00"
-                    );
-
                     return (
-                        transactionDate.getMonth() === month &&
-                        transactionDate.getFullYear() === year
+                        transaction.card_id === "mercado-pago" &&
+                        transaction.payment_method === "credit_card" &&
+                        transaction.invoice_month === month + 1 &&
+                        transaction.invoice_year === year
                     );
                 })
                 .reduce((sum, transaction) => sum + Number(transaction.amount), 0);
@@ -753,7 +582,7 @@ export default function CardsPage() {
                 mercadoPago: mercadoPagoTotal,
             };
         });
-    }, [transactions, invoiceHistoryPeriod]);
+    }, [transactions, cards, invoiceHistoryPeriod]); // Adicionado 'cards' como dependência
 
 
 
@@ -805,7 +634,7 @@ export default function CardsPage() {
                                     </p>
 
                                     <h3 className="mt-3 text-[42px] font-semibold tracking-tight text-white">
-                                        {formatBRL(mainAccount?.balance ?? 0)}
+                                        {formatBRL(accountBalance)}
                                     </h3>
                                 </div>
                             </div>
@@ -1194,20 +1023,31 @@ export default function CardsPage() {
                             </h2>
 
                             <p className="mt-3 text-sm text-zinc-400">
-                                {payInvoiceCard.isPaid
-                                    ? `Deseja cancelar o pagamento da fatura do ${payInvoiceCard.bank_name}?`
-                                    : (
-                                        <>
-                                            Confirmar pagamento da fatura do {payInvoiceCard.bank_name} no valor de{" "}
-                                            <span className="font-semibold text-white">
-                                                {formatBRL(payInvoiceCard.invoice)}
-                                            </span>
-                                            ?
-                                        </>
-                                    )}
+                                {payInvoiceCard.isPaid ? (
+                                    <>
+                                        Deseja cancelar o pagamento da fatura do {payInvoiceCard.bank_name}?
+                                        <br />
+                                        O valor pago será devolvido para a Caixa.
+                                    </>
+                                ) : (
+                                    <>
+                                        Confirmar pagamento da fatura do {payInvoiceCard.bank_name} no valor de{" "}
+                                        <span className="font-semibold text-white">
+                                            {formatBRL(payInvoiceCard.invoice)}
+                                        </span>
+                                        ?
+                                    </>
+                                )}
                             </p>
 
                             <div className="mt-7 grid grid-cols-2 gap-4">
+                                <button
+                                    onClick={() => setPayInvoiceCard(null)}
+                                    className="h-12 rounded-xl border border-zinc-700 text-sm font-medium text-zinc-300 transition hover:bg-white/5 hover:text-white"
+                                >
+                                    Cancelar
+                                </button>
+
                                 <button
                                     onClick={() =>
                                         payInvoiceCard.isPaid
@@ -1238,10 +1078,6 @@ export default function CardsPage() {
                 onError={() => showToast("error", "Erro ao realizar depósito.")}
             />
 
-            <InvoiceModal
-                card={invoiceCard}
-                onClose={() => setInvoiceCard(null)}
-            />
             <InvoiceModal
                 card={invoiceCard}
                 onClose={() => setInvoiceCard(null)}
@@ -1287,32 +1123,24 @@ function EditCardModal({
 
         setSaving(true);
 
-        const { error } = await supabase
-            .from("credit_card_settings")
-            .upsert(
-                {
-                    id: card.id,
-                    bank_name: card.bank_name,
-                    last_digits: card.last_digits,
-                    total_limit: Number(totalLimit || 0),
-                    due_day: Number(dueDay) || null,
-                    closing_day: Number(closingDay) || 9,
-                    color: card.color || "emerald",
-                    updated_at: new Date().toISOString(),
+        try {
+            await saveCreditCardSettings({
+                id: card.id,
+                bank_name: card.bank_name,
+                last_digits: card.last_digits,
+                total_limit: Number(totalLimit || 0),
+                due_day: Number(dueDay) || null,
+                closing_day: Number(closingDay) || 9,
+                color: card.color || "emerald",
+            });
 
-                },
-                { onConflict: "id" }
-            );
-
-        setSaving(false);
-
-        if (error) {
-            console.log("ERRO AO SALVAR CARTÃO:", error);
+            setSaving(false);
+            await onSuccess();
+        } catch (error) {
+            console.error("ERRO AO SALVAR CARTÃO:", error);
+            setSaving(false);
             onError();
-            return;
         }
-
-        await onSuccess();
     }
 
     return (
@@ -1588,23 +1416,19 @@ function DepositModal({
 
         setSaving(true);
 
-        const { error } = await supabase
-            .from("bank_accounts")
-            .update({
+        try {
+            await updateBankAccountBalance({
+                accountId: account.id,
                 balance: newBalance,
-                updated_at: new Date().toISOString(),
-            })
-            .eq("id", account.id);
+            });
 
-        setSaving(false);
-
-        if (error) {
-            console.log("ERRO AO EDITAR SALDO:", error);
+            setSaving(false);
+            await onSuccess();
+        } catch (error) {
+            console.error("ERRO AO EDITAR SALDO:", error);
+            setSaving(false);
             onError();
-            return;
         }
-
-        await onSuccess();
     }
 
     return (
@@ -1653,3 +1477,5 @@ function DepositModal({
         </div>
     );
 }
+
+

@@ -1,55 +1,144 @@
-// components/Sidebar.tsx
-
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+
 import {
   ChartNoAxesCombined,
-  ChevronDown,
   CreditCard,
-  Home,
-  LineChart,
-  Clock3,
   Dices,
+  FileUp,
+  Home,
+  List,
 } from "lucide-react";
 
-const navItems = [
+import { supabase } from "@/lib/supabase";
+
+type Account = {
+  id: string;
+  name: string;
+  balance: number;
+  active?: boolean;
+};
+
+type Transaction = {
+  id: string;
+  amount: number;
+};
+
+type Investment = {
+  id: string;
+  name: string;
+  amount?: number;
+  profit?: number;
+  current_amount?: number;
+};
+
+const menuItems = [
   { label: "Dashboard", href: "/", icon: Home },
-  { label: "Histórico", href: "/history", icon: Clock3 },
-  { label: "Contas", href: "/contas", icon: CreditCard },
-  { label: "Investimentos", href: "/investments", icon: LineChart },
+  { label: "Transações", href: "/transacoes", icon: List },
+  { label: "Importar PDF", href: "/importar", icon: FileUp },
+  { label: "Cartões e Contas", href: "/cartoes", icon: CreditCard },
   { label: "Bets", href: "/bets", icon: Dices },
 ];
+
+function formatBRL(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value);
+}
+
+function getInvestmentValue(investment?: Investment) {
+  if (!investment) return 0;
+
+  if (typeof investment.current_amount === "number") {
+    return Number(investment.current_amount ?? 0);
+  }
+
+  return Number(investment.amount ?? 0) + Number(investment.profit ?? 0);
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
 
-  return (
-    <aside className="fixed left-0 top-0 z-50 flex h-screen w-[280px] flex-col border-r border-zinc-800/80 bg-[#05090d]">
-      {/* Logo */}
-      <div className="px-8 pt-8">
-        <Link href="/" className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500 shadow-[0_0_28px_rgba(16,185,129,0.45)]">
-            <ChartNoAxesCombined
-              size={26}
-              strokeWidth={2.6}
-              className="text-white"
-            />
-          </div>
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [investments, setInvestments] = useState<Investment[]>([]);
 
-          <span className="text-[26px] font-semibold tracking-tight text-white">
-            Finanças
-          </span>
-        </Link>
+  useEffect(() => {
+    loadBalance();
+  }, []);
+
+  async function loadBalance() {
+    const [accountsRes, transactionsRes, investmentsRes] = await Promise.all([
+      supabase.from("accounts").select("id, name, balance, active"),
+      supabase.from("transactions").select("id, amount"),
+      supabase.from("investments").select("*"),
+    ]);
+
+    if (!accountsRes.error) {
+      setAccounts((accountsRes.data ?? []) as Account[]);
+    }
+
+    if (!transactionsRes.error) {
+      setTransactions((transactionsRes.data ?? []) as Transaction[]);
+    }
+
+    if (!investmentsRes.error) {
+      setInvestments((investmentsRes.data ?? []) as Investment[]);
+    }
+  }
+
+  const currentBalance = useMemo(() => {
+    const accountsBalance = accounts.reduce(
+      (sum, account) =>
+        account.active === false ? sum : sum + Number(account.balance ?? 0),
+      0
+    );
+
+    const transactionsBalance = transactions.reduce(
+      (sum, transaction) => sum + Number(transaction.amount ?? 0),
+      0
+    );
+
+    return accountsBalance + transactionsBalance;
+  }, [accounts, transactions]);
+
+  const cdiValue = useMemo(() => {
+    const investment = investments.find((item) =>
+      item.name.toLowerCase().includes("cdi")
+    );
+
+    return getInvestmentValue(investment);
+  }, [investments]);
+
+  const porquinhoValue = useMemo(() => {
+    const investment = investments.find((item) =>
+      item.name.toLowerCase().includes("porquinho")
+    );
+
+    return getInvestmentValue(investment);
+  }, [investments]);
+
+  return (
+    <aside className="fixed left-0 top-0 z-50 h-screen w-[280px] border-r border-white/10 bg-[#071018]/95 px-5 py-6 backdrop-blur-xl">
+      <div className="mb-10 flex items-center gap-4">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500 text-white">
+          <ChartNoAxesCombined size={36} strokeWidth={2.2} />
+        </div>
+
+        <h1 className="text-[24px] font-extrabold leading-none tracking-[-0.03em] text-white">
+          App Finanças
+        </h1>
       </div>
 
-      {/* Navegação */}
-      <nav className="mt-16 flex-1 space-y-3 px-3">
-        {navItems.map((item) => {
+      <nav className="space-y-1">
+        {menuItems.map((item) => {
           const Icon = item.icon;
 
-          const isActive =
+          const active =
             item.href === "/"
               ? pathname === "/"
               : pathname.startsWith(item.href);
@@ -58,29 +147,44 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`group relative flex h-[62px] items-center gap-5 rounded-md px-7 text-[15px] font-medium transition ${isActive
-                ? "bg-[#0b1319] text-emerald-400 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)]"
-                : "text-white hover:bg-[#0b1319] hover:text-emerald-400"
+              className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition ${active
+                  ? "bg-emerald-400/10 text-emerald-300"
+                  : "text-zinc-400 hover:bg-white/5 hover:text-white"
                 }`}
             >
-              {isActive && (
-                <span className="absolute left-0 top-0 h-full w-[2px] rounded-r-full bg-emerald-500" />
-              )}
-
-              <Icon
-                size={24}
-                strokeWidth={2}
-                className={`transition ${isActive
-                  ? "text-emerald-400"
-                  : "text-zinc-400 group-hover:text-emerald-400"
-                  }`}
-              />
-
-              <span>{item.label}</span>
+              <Icon size={18} />
+              {item.label}
             </Link>
           );
         })}
       </nav>
+
+      <div className="absolute bottom-5 left-5 right-5 rounded-3xl border border-emerald-400/20 bg-emerald-400/5 p-5">
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <ChartNoAxesCombined size={16} />
+          Saldo em conta
+        </div>
+
+        <strong className="mt-3 block text-3xl font-semibold text-emerald-400">
+          {formatBRL(currentBalance)}
+        </strong>
+
+        <div className="mt-4 space-y-2 border-t border-white/10 pt-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-zinc-500">CDI</span>
+            <span className="font-medium text-orange-400">
+              {formatBRL(cdiValue)}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-zinc-500">Porquinho</span>
+            <span className="font-medium text-emerald-400">
+              {formatBRL(porquinhoValue)}
+            </span>
+          </div>
+        </div>
+      </div>
     </aside>
   );
 }

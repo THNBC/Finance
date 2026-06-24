@@ -40,7 +40,6 @@ export function useTransactions() {
 
   async function generateRecurringTransactions() {
     const now = new Date();
-
     const currentMonthKey = getCurrentMonthKey(now);
 
     const { data: recurringData, error: recurringError } = await supabase
@@ -56,46 +55,61 @@ export function useTransactions() {
     const recurringTransactions =
       (recurringData ?? []) as RecurringTransaction[];
 
-    for (const recurring of recurringTransactions) {
-      const { data: existingTransaction } = await supabase
-        .from("transactions")
-        .select("id")
-        .eq("recurring_id", recurring.id)
-        .eq("generated_month", currentMonthKey)
-        .maybeSingle();
+    if (recurringTransactions.length === 0) {
+      return;
+    }
 
-      if (existingTransaction) {
-        continue;
-      }
+    const recurringIds = recurringTransactions.map((item) => item.id);
 
-      const dueDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        recurring.due_day
-      );
+    const { data: existingData, error: existingError } = await supabase
+      .from("transactions")
+      .select("recurring_id")
+      .eq("generated_month", currentMonthKey)
+      .in("recurring_id", recurringIds);
 
-      const transactionPayload = {
-        title: recurring.title,
-        amount: recurring.amount,
-        type: recurring.type,
-        category: recurring.category,
-        transaction_date: dueDate.toISOString().split("T")[0],
-        payment_method: recurring.payment_method,
-        card_id: recurring.card_id,
-        recurring_id: recurring.id,
-        generated_month: currentMonthKey,
-      };
+    if (existingError) {
+      console.log("ERRO AO BUSCAR RECORRÊNCIAS EXISTENTES:", existingError);
+      return;
+    }
 
-      const { error: insertError } = await supabase
-        .from("transactions")
-        .insert(transactionPayload);
+    const existingRecurringIds = new Set(
+      (existingData ?? [])
+        .map((item) => item.recurring_id)
+        .filter(Boolean)
+    );
 
-      if (insertError) {
-        console.log(
-          "ERRO AO GERAR TRANSAÇÃO RECORRENTE:",
-          insertError
+    const transactionsToInsert = recurringTransactions
+      .filter((recurring) => !existingRecurringIds.has(recurring.id))
+      .map((recurring) => {
+        const dueDate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          recurring.due_day
         );
-      }
+
+        return {
+          title: recurring.title,
+          amount: recurring.amount,
+          type: recurring.type,
+          category: recurring.category,
+          transaction_date: dueDate.toISOString().split("T")[0],
+          payment_method: recurring.payment_method,
+          card_id: recurring.card_id,
+          recurring_id: recurring.id,
+          generated_month: currentMonthKey,
+        };
+      });
+
+    if (transactionsToInsert.length === 0) {
+      return;
+    }
+
+    const { error: insertError } = await supabase
+      .from("transactions")
+      .insert(transactionsToInsert);
+
+    if (insertError) {
+      console.log("ERRO AO GERAR TRANSAÇÕES RECORRENTES:", insertError);
     }
   }
 
