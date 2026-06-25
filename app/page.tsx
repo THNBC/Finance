@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   ArrowUpRight,
   Clock,
@@ -10,6 +8,8 @@ import {
   Loader2,
   Wallet,
 } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -103,9 +103,7 @@ export default function DashboardPage() {
         )
         .order("transaction_date", { ascending: true }),
 
-      supabase
-        .from("accounts")
-        .select("*"),
+      supabase.from("accounts").select("*"),
     ]);
 
     if (transactionsResponse.error) {
@@ -117,7 +115,6 @@ export default function DashboardPage() {
     if (accountsResponse.error) {
       console.error(accountsResponse.error);
     } else {
-      console.log("ACCOUNTS DASH:", accountsResponse.data);
       setAccounts((accountsResponse.data ?? []) as Account[]);
     }
 
@@ -129,13 +126,13 @@ export default function DashboardPage() {
       a.transaction_date.localeCompare(b.transaction_date)
     );
 
-    const initialBalance = accounts.reduce(
-      (sum, account) => sum + Number(account.balance ?? 0),
-      0
-    );
+    const initialBalance = accounts.reduce((sum, account) => {
+      if (account.active === false) return sum;
+      return sum + Number(account.balance ?? 0);
+    }, 0);
 
     const transactionBalance = sortedTransactions.reduce(
-      (sum, item) => sum + Number(item.amount),
+      (sum, item) => sum + Number(item.amount ?? 0),
       0
     );
 
@@ -143,11 +140,11 @@ export default function DashboardPage() {
 
     const totalIncome = sortedTransactions
       .filter((item) => item.type === "income")
-      .reduce((sum, item) => sum + Math.abs(Number(item.amount)), 0);
+      .reduce((sum, item) => sum + Math.abs(Number(item.amount ?? 0)), 0);
 
     const totalExpense = sortedTransactions
       .filter((item) => item.type === "expense")
-      .reduce((sum, item) => sum + Math.abs(Number(item.amount)), 0);
+      .reduce((sum, item) => sum + Math.abs(Number(item.amount ?? 0)), 0);
 
     const totalTransactions = sortedTransactions.length;
 
@@ -188,10 +185,12 @@ export default function DashboardPage() {
 
       if (!monthData) continue;
 
+      const amount = Math.abs(Number(transaction.amount ?? 0));
+
       if (transaction.type === "income") {
-        monthData.income += Math.abs(Number(transaction.amount));
+        monthData.income += amount;
       } else {
-        monthData.expense += Math.abs(Number(transaction.amount));
+        monthData.expense += amount;
       }
     }
 
@@ -203,7 +202,7 @@ export default function DashboardPage() {
       );
 
       const monthBalance = monthTransactions.reduce(
-        (sum, item) => sum + Number(item.amount),
+        (sum, item) => sum + Number(item.amount ?? 0),
         0
       );
 
@@ -234,7 +233,6 @@ export default function DashboardPage() {
       balanceChartData,
       monthlyChartData,
       recentImports,
-      accountBalance: initialBalance,
     };
   }, [transactions, accounts, period]);
 
@@ -253,7 +251,7 @@ export default function DashboardPage() {
 
           <Link
             href="/importar"
-            className="flex items-center gap-2 rounded-2xl bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-cyan-300"
+            className="flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-emerald-400"
           >
             <FileUp size={18} />
             Importar arquivo
@@ -273,7 +271,7 @@ export default function DashboardPage() {
                 value={formatBRL(dashboardData.currentBalance)}
                 helper="Conta Caixa"
                 icon={<Wallet size={21} />}
-                variant="blue"
+                variant="green"
               />
 
               <SummaryCard
@@ -309,8 +307,8 @@ export default function DashboardPage() {
                       key={item}
                       onClick={() => setPeriod(item as 3 | 6 | 12)}
                       className={`rounded-xl border px-3 py-1.5 text-xs transition ${period === item
-                        ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
-                        : "border-white/10 text-zinc-500 hover:border-cyan-400/40 hover:text-cyan-300"
+                          ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
+                          : "border-white/10 text-zinc-500 hover:border-emerald-400/40 hover:text-emerald-300"
                         }`}
                     >
                       {item} meses
@@ -335,7 +333,7 @@ export default function DashboardPage() {
                     <Line
                       type="monotone"
                       dataKey="balance"
-                      stroke="#22d3ee"
+                      stroke="#10b981"
                       strokeWidth={3}
                       dot={false}
                     />
@@ -370,8 +368,16 @@ export default function DashboardPage() {
                         color: "#fff",
                       }}
                     />
-                    <Bar dataKey="income" fill="#22c55e" radius={[8, 8, 0, 0]} />
-                    <Bar dataKey="expense" fill="#ef4444" radius={[8, 8, 0, 0]} />
+                    <Bar
+                      dataKey="income"
+                      fill="#10b981"
+                      radius={[8, 8, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="expense"
+                      fill="#ef4444"
+                      radius={[8, 8, 0, 0]}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
@@ -390,7 +396,7 @@ export default function DashboardPage() {
 
                 <Link
                   href="/importar"
-                  className="rounded-xl border border-white/10 px-3 py-2 text-xs text-zinc-400 transition hover:border-cyan-400/40 hover:text-cyan-300"
+                  className="rounded-xl border border-white/10 px-3 py-2 text-xs text-zinc-400 transition hover:border-emerald-400/40 hover:text-emerald-300"
                 >
                   Nova importação
                 </Link>
@@ -452,8 +458,8 @@ export default function DashboardPage() {
 
                           <td
                             className={`px-5 py-3 text-right font-medium ${Number(transaction.amount) >= 0
-                              ? "text-emerald-300"
-                              : "text-red-300"
+                                ? "text-emerald-300"
+                                : "text-red-300"
                               }`}
                           >
                             {formatBRL(Number(transaction.amount))}
@@ -483,12 +489,11 @@ function SummaryCard({
   value: string;
   helper: string;
   icon: React.ReactNode;
-  variant: "green" | "red" | "blue" | "purple" | "neutral";
+  variant: "green" | "red" | "purple" | "neutral";
 }) {
   const variants = {
     green: "text-emerald-300 bg-emerald-400/10 border-emerald-400/20",
     red: "text-red-300 bg-red-400/10 border-red-400/20",
-    blue: "text-cyan-300 bg-cyan-400/10 border-cyan-400/20",
     purple: "text-violet-300 bg-violet-400/10 border-violet-400/20",
     neutral: "text-zinc-300 bg-white/5 border-white/10",
   };

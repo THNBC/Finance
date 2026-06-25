@@ -30,7 +30,7 @@ type Transaction = {
   }[];
 };
 
-type CreditCardItem = {
+type TransactionItem = {
   id: string;
   transaction_id: string;
   item_date: string | null;
@@ -38,6 +38,7 @@ type CreditCardItem = {
   amount: number;
   installment: string | null;
   created_at: string;
+  item_type: "credit_card" | "income";
 };
 
 const pageSizeOptions = [10, 20, 50];
@@ -51,7 +52,7 @@ function formatBRL(value: number) {
 
 function formatDate(date?: string | null) {
   if (!date) return "-";
-  return new Date(date + "T00:00:00").toLocaleDateString("pt-BR");
+  return new Date(`${date}T00:00:00`).toLocaleDateString("pt-BR");
 }
 
 function getSourceLabel(source?: string | null) {
@@ -63,6 +64,11 @@ function getSourceLabel(source?: string | null) {
 
 function getInstallmentClasses(installment: string) {
   const [current, total] = installment.split("/").map(Number);
+
+  if (!current || !total) {
+    return "border-zinc-400/20 bg-zinc-400/10 text-zinc-300";
+  }
+
   const progress = current / total;
 
   if (current === total) {
@@ -87,7 +93,7 @@ function getInstallmentClasses(installment: string) {
 export default function TransacoesPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [itemsByTransaction, setItemsByTransaction] = useState<
-    Record<string, CreditCardItem[]>
+    Record<string, TransactionItem[]>
   >({});
 
   const [loading, setLoading] = useState(true);
@@ -139,7 +145,8 @@ export default function TransacoesPage() {
         )
       `
       )
-      .order("transaction_date", { ascending: false });
+      .order("transaction_date", { ascending: false })
+      .order("created_at", { ascending: false });
 
     if (transactionError) {
       console.error(transactionError);
@@ -147,47 +154,113 @@ export default function TransacoesPage() {
       return;
     }
 
-    const transactions: Transaction[] = (transactionData ?? []).map(
+    const parsedTransactions: Transaction[] = (transactionData ?? []).map(
       (transaction: any) => ({
         ...transaction,
+        amount: Number(transaction.amount),
         credit_cards: Array.isArray(transaction.credit_cards)
           ? transaction.credit_cards
+          : transaction.credit_cards
+          ? [transaction.credit_cards]
           : [],
       })
     );
 
-    const transactionIds = transactions.map((item) => item.id);
+    const transactionIds = parsedTransactions.map((item) => item.id);
 
-    let groupedItems: Record<string, CreditCardItem[]> = {};
-
-    if (transactionIds.length > 0) {
-      const { data: itemsData, error: itemsError } = await supabase
-        .from("credit_card_items")
-        .select("*")
-        .in("transaction_id", transactionIds)
-        .order("item_date", { ascending: true });
-
-      if (itemsError) {
-        console.error(itemsError);
-      }
-
-      groupedItems = (itemsData ?? []).reduce(
-        (acc: Record<string, CreditCardItem[]>, item: CreditCardItem) => {
-          if (!acc[item.transaction_id]) acc[item.transaction_id] = [];
-          acc[item.transaction_id].push(item);
-          return acc;
-        },
-        {}
-      );
+    if (transactionIds.length === 0) {
+      setTransactions(parsedTransactions);
+      setItemsByTransaction({});
+      setLoading(false);
+      return;
     }
 
-    setTransactions(transactions);
+    const { data: cardItemsData, error: cardItemsError } = await supabase
+      .from("credit_card_items")
+      .select("*")
+      .in("transaction_id", transactionIds)
+      .order("item_date", { ascending: true });
+
+    if (cardItemsError) {
+      console.error(cardItemsError);
+    }
+
+    const cardItems: TransactionItem[] = (cardItemsData ?? []).map(
+      (item: any) => ({
+        id: item.id,
+        transaction_id: item.transaction_id,
+        item_date: item.item_date,
+        description: item.description ?? item.title ?? "-",
+        amount: Number(item.amount),
+        installment: item.installment ?? null,
+        created_at: item.created_at,
+        item_type: "credit_card",
+      })
+    );
+
+    const { data: incomeItemsData, error: incomeItemsError } = await supabase
+      .from("transaction_items")
+      .select("*")
+      .in("transaction_id", transactionIds)
+      .order("item_date", { ascending: true });
+
+    if (incomeItemsError) {
+      console.error(incomeItemsError);
+    }
+
+    const incomeItems: TransactionItem[] = (incomeItemsData ?? []).map(
+      (item: any) => ({
+        id: item.id,
+        transaction_id: item.transaction_id,
+        item_date: item.item_date,
+        description: item.title ?? item.description ?? "-",
+        amount: Number(item.amount),
+        installment: null,
+        created_at: item.created_at,
+        item_type: "income",
+      })
+    );
+
+    const allItems = [...cardItems, ...incomeItems];
+
+    const groupedItems = allItems.reduce(
+      (acc: Record<string, TransactionItem[]>, item) => {
+        if (!acc[item.transaction_id]) {
+          acc[item.transaction_id] = [];
+        }
+
+        acc[item.transaction_id].push(item);
+
+        return acc;
+      },
+      {}
+    );
+
+    setTransactions(parsedTransactions);
     setItemsByTransaction(groupedItems);
     setLoading(false);
   }
 
   async function deleteTransaction() {
     if (!deleteTarget) return;
+
+    const { error: cardItemsError } = await supabase
+      .from("credit_card_items")
+      .delete()
+      .eq("transaction_id", deleteTarget.id);
+
+    if (cardItemsError) {
+      console.error(cardItemsError);
+    }
+
+    const { error: incomeItemsError } = await supabase
+      .from("transaction_items")
+      .delete()
+      .eq("transaction_id", deleteTarget.id);
+
+    if (incomeItemsError) {
+      console.error(incomeItemsError);
+    }
 
     const { error } = await supabase
       .from("transactions")
@@ -209,15 +282,25 @@ export default function TransacoesPage() {
     try {
       setClearHistoryLoading(true);
 
-      const { error: itemsError } = await supabase
+      const { error: cardItemsError } = await supabase
         .from("credit_card_items")
         .delete()
         .neq("id", "00000000-0000-0000-0000-000000000000");
 
-      if (itemsError) {
-        console.error(itemsError);
+      if (cardItemsError) {
+        console.error(cardItemsError);
         alert("Erro ao limpar os itens das faturas.");
-        setClearHistoryLoading(false);
+        return;
+      }
+
+      const { error: transactionItemsError } = await supabase
+        .from("transaction_items")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000");
+
+      if (transactionItemsError) {
+        console.error(transactionItemsError);
+        alert("Erro ao limpar os detalhes das transações.");
         return;
       }
 
@@ -229,7 +312,6 @@ export default function TransacoesPage() {
       if (transactionsError) {
         console.error(transactionsError);
         alert("Erro ao limpar o histórico de transações.");
-        setClearHistoryLoading(false);
         return;
       }
 
@@ -326,8 +408,16 @@ export default function TransacoesPage() {
         </header>
 
         <section className="mb-5 grid grid-cols-4 gap-4">
-          <SummaryCard title="Receitas" value={formatBRL(totalIncome)} variant="green" />
-          <SummaryCard title="Despesas" value={formatBRL(totalExpense)} variant="red" />
+          <SummaryCard
+            title="Receitas"
+            value={formatBRL(totalIncome)}
+            variant="green"
+          />
+          <SummaryCard
+            title="Despesas"
+            value={formatBRL(totalExpense)}
+            variant="red"
+          />
           <SummaryCard
             title="Saldo"
             value={formatBRL(balance)}
@@ -369,11 +459,11 @@ export default function TransacoesPage() {
               onChange={(event) =>
                 setSourceFilter(
                   event.target.value as
-                  | "all"
-                  | "caixa"
-                  | "inter"
-                  | "mercadopago"
-                  | "manual"
+                    | "all"
+                    | "caixa"
+                    | "inter"
+                    | "mercadopago"
+                    | "manual"
                 )
               }
               className="h-11 rounded-2xl border border-white/10 bg-[#081018] px-4 text-sm text-zinc-300 outline-none"
@@ -398,8 +488,6 @@ export default function TransacoesPage() {
               onChange={(event) => setEndDate(event.target.value)}
               className="h-11 rounded-2xl border border-white/10 bg-[#081018] px-4 text-sm text-zinc-300 outline-none"
             />
-
-
           </div>
         </section>
 
@@ -407,13 +495,27 @@ export default function TransacoesPage() {
           <table className="w-full table-fixed border-collapse text-sm">
             <thead className="bg-white/[0.02] text-zinc-500">
               <tr>
-                <th className="w-[130px] px-5 py-3 text-left font-medium">Data</th>
-                <th className="w-[32%] px-5 py-3 text-left font-medium">Descrição</th>
-                <th className="w-[160px] px-5 py-3 text-left font-medium">Origem</th>
-                <th className="w-[170px] px-5 py-3 text-left font-medium">Detalhes</th>
-                <th className="w-[140px] px-5 py-3 text-left font-medium">Tipo</th>
-                <th className="w-[160px] px-5 py-3 text-right font-medium">Valor</th>
-                <th className="w-[90px] px-5 py-3 text-right font-medium">Ações</th>
+                <th className="w-[130px] px-5 py-3 text-left font-medium">
+                  Data
+                </th>
+                <th className="w-[32%] px-5 py-3 text-left font-medium">
+                  Descrição
+                </th>
+                <th className="w-[160px] px-5 py-3 text-left font-medium">
+                  Origem
+                </th>
+                <th className="w-[170px] px-5 py-3 text-left font-medium">
+                  Detalhes
+                </th>
+                <th className="w-[140px] px-5 py-3 text-left font-medium">
+                  Tipo
+                </th>
+                <th className="w-[160px] px-5 py-3 text-right font-medium">
+                  Valor
+                </th>
+                <th className="w-[90px] px-5 py-3 text-right font-medium">
+                  Ações
+                </th>
               </tr>
             </thead>
 
@@ -448,6 +550,10 @@ export default function TransacoesPage() {
                     0
                   );
 
+                  const hasIncomeItems = items.some(
+                    (item) => item.item_type === "income"
+                  );
+
                   return (
                     <React.Fragment key={transaction.id}>
                       <tr className="border-t border-white/5 transition hover:bg-white/[0.02]">
@@ -468,10 +574,7 @@ export default function TransacoesPage() {
                           {items.length > 0 ? (
                             <div>
                               <p className="text-xs text-zinc-400">
-                                {transaction.source === "caixa" &&
-                                  transaction.description.startsWith(
-                                    "Rendimento Caixa"
-                                  )
+                                {hasIncomeItems
                                   ? `${items.length} rendimentos`
                                   : `${items.length} compras`}
                               </p>
@@ -496,8 +599,9 @@ export default function TransacoesPage() {
 
                         <td className="px-5 py-3">
                           <div
-                            className={`flex items-center gap-2 text-sm font-medium ${isIncome ? "text-emerald-300" : "text-red-300"
-                              }`}
+                            className={`flex items-center gap-2 text-sm font-medium ${
+                              isIncome ? "text-emerald-300" : "text-red-300"
+                            }`}
                           >
                             {isIncome ? (
                               <ArrowUp size={15} />
@@ -509,8 +613,9 @@ export default function TransacoesPage() {
                         </td>
 
                         <td
-                          className={`px-5 py-3 text-right font-medium ${isIncome ? "text-emerald-300" : "text-red-300"
-                            }`}
+                          className={`px-5 py-3 text-right font-medium ${
+                            isIncome ? "text-emerald-300" : "text-red-300"
+                          }`}
                         >
                           {formatBRL(Number(transaction.amount))}
                         </td>
@@ -532,13 +637,19 @@ export default function TransacoesPage() {
                               <table className="w-full text-sm">
                                 <thead className="bg-white/[0.03] text-zinc-500">
                                   <tr>
-                                    <th className="px-4 py-3 text-left">Data</th>
+                                    <th className="px-4 py-3 text-left">
+                                      Data
+                                    </th>
                                     <th className="px-4 py-3 text-left">
                                       Descrição
                                     </th>
-                                    <th className="px-4 py-3 text-left">
-                                      Parcela
-                                    </th>
+
+                                    {!hasIncomeItems && (
+                                      <th className="px-4 py-3 text-left">
+                                        Parcela
+                                      </th>
+                                    )}
+
                                     <th className="px-4 py-3 text-right">
                                       Valor
                                     </th>
@@ -548,7 +659,7 @@ export default function TransacoesPage() {
                                 <tbody>
                                   {items.map((item) => (
                                     <tr
-                                      key={item.id}
+                                      key={`${item.item_type}-${item.id}`}
                                       className="border-t border-white/5"
                                     >
                                       <td className="px-4 py-3 text-zinc-400">
@@ -559,21 +670,29 @@ export default function TransacoesPage() {
                                         {item.description}
                                       </td>
 
-                                      <td className="px-4 py-3">
-                                        {item.installment ? (
-                                          <span
-                                            className={`rounded-full border px-2 py-1 text-xs ${getInstallmentClasses(
-                                              item.installment
-                                            )}`}
-                                          >
-                                            {item.installment}
-                                          </span>
-                                        ) : (
-                                          "-"
-                                        )}
-                                      </td>
+                                      {!hasIncomeItems && (
+                                        <td className="px-4 py-3">
+                                          {item.installment ? (
+                                            <span
+                                              className={`rounded-full border px-2 py-1 text-xs ${getInstallmentClasses(
+                                                item.installment
+                                              )}`}
+                                            >
+                                              {item.installment}
+                                            </span>
+                                          ) : (
+                                            "-"
+                                          )}
+                                        </td>
+                                      )}
 
-                                      <td className="px-4 py-3 text-right text-zinc-200">
+                                      <td
+                                        className={`px-4 py-3 text-right ${
+                                          hasIncomeItems
+                                            ? "text-emerald-300"
+                                            : "text-zinc-200"
+                                        }`}
+                                      >
                                         {formatBRL(Number(item.amount))}
                                       </td>
                                     </tr>
@@ -583,7 +702,7 @@ export default function TransacoesPage() {
                                 <tfoot>
                                   <tr className="border-t border-white/10 bg-white/[0.02]">
                                     <td
-                                      colSpan={3}
+                                      colSpan={hasIncomeItems ? 2 : 3}
                                       className="px-4 py-3 text-right font-medium text-zinc-300"
                                     >
                                       Total
@@ -613,69 +732,39 @@ export default function TransacoesPage() {
                 {filteredTransactions.length === 0
                   ? 0
                   : (currentPage - 1) * pageSize + 1}
-              </span>
-              {" "}a{" "}
+              </span>{" "}
+              a{" "}
               <span className="text-zinc-300">
-                {Math.min(
-                  currentPage * pageSize,
-                  filteredTransactions.length
-                )}
-              </span>
-              {" "}de{" "}
+                {Math.min(currentPage * pageSize, filteredTransactions.length)}
+              </span>{" "}
+              de{" "}
               <span className="text-zinc-300">
                 {filteredTransactions.length}
-              </span>
-              {" "}transações
+              </span>{" "}
+              transações
             </p>
 
             <div className="flex items-center gap-2">
               <button
                 onClick={() =>
-                  setCurrentPage((current) =>
-                    Math.max(1, current - 1)
-                  )
+                  setCurrentPage((current) => Math.max(1, current - 1))
                 }
                 disabled={currentPage === 1}
-                className="
-        flex h-10 w-10 items-center justify-center
-        rounded-xl border border-white/10
-        text-zinc-400
-        hover:bg-white/5
-        disabled:opacity-40
-      "
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 text-zinc-400 hover:bg-white/5 disabled:opacity-40"
               >
                 <ChevronLeft size={16} />
               </button>
 
-              <div
-                className="
-        flex h-10 min-w-[44px]
-        items-center justify-center
-        rounded-xl
-        border border-cyan-400
-        bg-cyan-400/10
-        px-4
-        text-cyan-300
-        font-medium
-      "
-              >
+              <div className="flex h-10 min-w-[44px] items-center justify-center rounded-xl border border-cyan-400 bg-cyan-400/10 px-4 font-medium text-cyan-300">
                 {currentPage}
               </div>
 
               <button
                 onClick={() =>
-                  setCurrentPage((current) =>
-                    Math.min(totalPages, current + 1)
-                  )
+                  setCurrentPage((current) => Math.min(totalPages, current + 1))
                 }
                 disabled={currentPage === totalPages}
-                className="
-        flex h-10 w-10 items-center justify-center
-        rounded-xl border border-white/10
-        text-zinc-400
-        hover:bg-white/5
-        disabled:opacity-40
-      "
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 text-zinc-400 hover:bg-white/5 disabled:opacity-40"
               >
                 <ChevronRight size={16} />
               </button>
@@ -683,22 +772,14 @@ export default function TransacoesPage() {
 
             <select
               value={pageSize}
-              onChange={(event) =>
-                setPageSize(Number(event.target.value))
-              }
-              className="
-      h-10 w-[150px]
-      rounded-xl
-      border border-white/10
-      bg-[#081018]
-      px-4
-      text-sm text-white
-      outline-none
-    "
+              onChange={(event) => setPageSize(Number(event.target.value))}
+              className="h-10 w-[150px] rounded-xl border border-white/10 bg-[#081018] px-4 text-sm text-white outline-none"
             >
-              <option value={10}>10 por página</option>
-              <option value={20}>20 por página</option>
-              <option value={50}>50 por página</option>
+              {pageSizeOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option} por página
+                </option>
+              ))}
             </select>
           </div>
         </section>
@@ -723,7 +804,7 @@ export default function TransacoesPage() {
                 <h3 className="text-xl font-semibold">Limpar histórico?</h3>
                 <p className="mt-2 text-sm text-zinc-500">
                   Essa ação vai apagar todas as transações e todos os detalhes
-                  vinculados às faturas.
+                  vinculados.
                 </p>
               </div>
 
@@ -776,7 +857,7 @@ export default function TransacoesPage() {
               <div>
                 <h3 className="text-xl font-semibold">Excluir transação?</h3>
                 <p className="mt-2 text-sm text-zinc-500">
-                  Essa ação também remove os detalhes vinculados à fatura.
+                  Essa ação também remove os detalhes vinculados.
                 </p>
               </div>
 

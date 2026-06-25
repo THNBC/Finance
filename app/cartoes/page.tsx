@@ -1,8 +1,5 @@
 "use client";
 
-import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   Loader2,
   MoreHorizontal,
@@ -10,15 +7,18 @@ import {
   SquarePen,
   X,
 } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
   CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  Tooltip,
-  Legend,
 } from "recharts";
 
 import { supabase } from "@/lib/supabase";
