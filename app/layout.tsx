@@ -1,12 +1,6 @@
 import "./globals.css";
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import Sidebar from "@/components/Sidebar";
-
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-});
+import Sidebar from "@/components/layout/Sidebar";
 
 export const metadata: Metadata = {
   title: "Financeiro",
@@ -20,12 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR">
-      <body
-        className={`${inter.className} min-h-screen overflow-x-hidden bg-[#05090d] text-white`}
-      >
+      <body className="min-h-screen overflow-x-hidden bg-[#05090d] font-sans text-white">
         <Sidebar />
 
-        <main className="relative z-10 ml-[280px] min-h-screen w-[calc(100vw-280px)]">
+        <main className="relative z-10 min-h-screen w-full pt-16 lg:ml-[280px] lg:w-[calc(100vw-280px)] lg:pt-0">
           {children}
         </main>
       </body>
