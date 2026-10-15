@@ -3,9 +3,9 @@
 import { ArrowUpRight } from "lucide-react";
 
 export function CartoesHeader({
-  onAddTransaction,
+  onAddPurchase,
 }: {
-  onAddTransaction: () => void;
+  onAddPurchase: () => void;
 }) {
   return (
     <header className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -21,11 +21,11 @@ export function CartoesHeader({
 
       <button
         type="button"
-        onClick={onAddTransaction}
+        onClick={onAddPurchase}
         className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-emerald-400 sm:w-auto"
       >
         <ArrowUpRight size={18} />
-        Adicionar Transação
+        Adicionar compra
       </button>
     </header>
   );

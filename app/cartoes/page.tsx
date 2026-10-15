@@ -41,7 +41,7 @@ export default function CartoesPage() {
     <main className="min-h-screen">
       <section className="w-full px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-7">
         <CartoesHeader
-          onAddTransaction={() => actions.setShowTransactionModal(true)}
+          onAddPurchase={actions.openPurchaseModal}
         />
 
         {loading ? (
