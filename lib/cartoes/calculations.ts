@@ -185,9 +185,9 @@ export function calculateCartoesData({
       const percent =
         limit > 0
           ? Math.min(
-              (used / limit) * 100,
-              100
-            )
+            (used / limit) * 100,
+            100
+          )
           : 0;
 
       return {
@@ -206,7 +206,7 @@ export function calculateCartoesData({
           source === "inter"
             ? "Cartão Inter"
             : source ===
-                "mercadopago"
+              "mercadopago"
               ? "Cartão Mercado Pago"
               : "Cartão",
         barClass:
@@ -266,8 +266,8 @@ export function calculateCartoesData({
   const profitability =
     totalInvestmentBase > 0
       ? (totalProfit /
-          totalInvestmentBase) *
-        100
+        totalInvestmentBase) *
+      100
       : 0;
 
   return {

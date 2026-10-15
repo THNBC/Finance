@@ -29,6 +29,7 @@ export function DashboardCharts({
 
       <MonthlyMovementChart
         data={data.monthlyChartData}
+        salaryData={data.salaryChartData}
       />
     </section>
   );

@@ -78,7 +78,7 @@ export function InvestmentCard({
                   <p className="whitespace-nowrap text-base font-semibold text-white sm:text-2xl">
                     {formatBRL(
                       Number(investment.amount) +
-                        Number(investment.profit)
+                      Number(investment.profit)
                     )}
                   </p>
 

@@ -88,12 +88,12 @@ export function useCartoesData() {
     ) {
       console.error(
         transactionsRes.error ||
-          accountsRes.error ||
-          cardsRes.error ||
-          purchasesRes.error ||
-          installmentsRes.error ||
-          investmentsRes.error ||
-          investmentTransactionsRes.error
+        accountsRes.error ||
+        cardsRes.error ||
+        purchasesRes.error ||
+        installmentsRes.error ||
+        investmentsRes.error ||
+        investmentTransactionsRes.error
       );
 
       setLoading(false);

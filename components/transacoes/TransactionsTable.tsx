@@ -141,11 +141,10 @@ export function TransactionsTable({
                       </p>
 
                       <div
-                        className={`mt-1 flex items-center gap-1.5 text-sm font-medium ${
-                          isIncome
+                        className={`mt-1 flex items-center gap-1.5 text-sm font-medium ${isIncome
                             ? "text-emerald-300"
                             : "text-red-300"
-                        }`}
+                          }`}
                       >
                         {isIncome ? (
                           <ArrowUp size={14} />
@@ -196,11 +195,10 @@ export function TransactionsTable({
                     </div>
 
                     <strong
-                      className={`shrink-0 whitespace-nowrap text-base font-semibold ${
-                        isIncome
+                      className={`shrink-0 whitespace-nowrap text-base font-semibold ${isIncome
                           ? "text-emerald-300"
                           : "text-red-300"
-                      }`}
+                        }`}
                     >
                       {formatBRL(Number(transaction.amount))}
                     </strong>
@@ -232,11 +230,10 @@ export function TransactionsTable({
                               </div>
 
                               <strong
-                                className={`shrink-0 whitespace-nowrap text-sm ${
-                                  hasIncomeItems
+                                className={`shrink-0 whitespace-nowrap text-sm ${hasIncomeItems
                                     ? "text-emerald-300"
                                     : "text-zinc-200"
-                                }`}
+                                  }`}
                               >
                                 {formatBRL(Number(item.amount))}
                               </strong>
@@ -416,11 +413,10 @@ export function TransactionsTable({
 
                     <td className="px-5 py-3">
                       <div
-                        className={`flex items-center gap-2 text-sm font-medium ${
-                          isIncome
+                        className={`flex items-center gap-2 text-sm font-medium ${isIncome
                             ? "text-emerald-300"
                             : "text-red-300"
-                        }`}
+                          }`}
                       >
                         {isIncome ? (
                           <ArrowUp size={15} />
@@ -435,11 +431,10 @@ export function TransactionsTable({
                     </td>
 
                     <td
-                      className={`px-5 py-3 text-right font-medium ${
-                        isIncome
+                      className={`px-5 py-3 text-right font-medium ${isIncome
                           ? "text-emerald-300"
                           : "text-red-300"
-                      }`}
+                        }`}
                     >
                       {formatBRL(
                         Number(transaction.amount)
@@ -525,11 +520,10 @@ export function TransactionsTable({
                                   )}
 
                                   <td
-                                    className={`px-4 py-3 text-right ${
-                                      hasIncomeItems
+                                    className={`px-4 py-3 text-right ${hasIncomeItems
                                         ? "text-emerald-300"
                                         : "text-zinc-200"
-                                    }`}
+                                      }`}
                                   >
                                     {formatBRL(
                                       Number(item.amount)

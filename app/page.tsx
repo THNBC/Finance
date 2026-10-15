@@ -51,6 +51,7 @@ export default function DashboardPage() {
         )}
       </section>
 
+
       <AddTransactionModal
         open={actions.showTransactionModal}
         saving={actions.savingTransaction}
@@ -58,13 +59,16 @@ export default function DashboardPage() {
         description={actions.transactionDescription}
         amount={actions.transactionAmount}
         date={actions.transactionDate}
+        isSalary={actions.transactionIsSalary}
         onClose={() => actions.setShowTransactionModal(false)}
-        onTypeChange={actions.setTransactionType}
+        onTypeChange={actions.handleTransactionTypeChange}
         onDescriptionChange={actions.setTransactionDescription}
         onAmountChange={actions.setTransactionAmount}
         onDateChange={actions.setTransactionDate}
+        onIsSalaryChange={actions.setTransactionIsSalary}
         onSave={actions.saveManualTransaction}
       />
+
     </main>
   );
 }

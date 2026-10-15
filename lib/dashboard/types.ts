@@ -1,3 +1,4 @@
+
 export type Transaction = {
   id: string;
   transaction_date: string;
@@ -6,6 +7,7 @@ export type Transaction = {
   type: "income" | "expense";
   source: string | null;
   created_at: string;
+  is_salary?: boolean | null;
 };
 
 export type Account = {
@@ -43,5 +45,6 @@ export type DashboardData = {
   lastImport: string;
   balanceChartData: BalanceChartItem[];
   monthlyChartData: MonthlyChartItem[];
+  salaryChartData: MonthlyChartItem[];
   recentImports: Transaction[];
 };

@@ -95,11 +95,10 @@ function Toast({
   return (
     <div className="pointer-events-none fixed bottom-4 left-1/2 z-[9999] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 animate-[toastIn_280ms_ease-out] sm:bottom-6 sm:w-auto">
       <div
-        className={`flex items-center gap-3 rounded-xl border px-4 py-3 shadow-[0_0_40px_rgba(0,0,0,0.35)] backdrop-blur-xl sm:px-5 sm:py-4 ${
-          type === "success"
+        className={`flex items-center gap-3 rounded-xl border px-4 py-3 shadow-[0_0_40px_rgba(0,0,0,0.35)] backdrop-blur-xl sm:px-5 sm:py-4 ${type === "success"
             ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
             : "border-red-500/30 bg-red-500/10 text-red-300"
-        }`}
+          }`}
       >
         {type === "success" ? (
           <CheckCircle2 size={20} className="shrink-0" />
@@ -517,11 +516,10 @@ export default function AddTransactionModal({
                 onClick={() =>
                   handleTypeChange("expense")
                 }
-                className={`flex h-12 items-center justify-center gap-2 border-b-2 text-sm font-medium transition sm:h-14 sm:gap-3 ${
-                  type === "expense"
+                className={`flex h-12 items-center justify-center gap-2 border-b-2 text-sm font-medium transition sm:h-14 sm:gap-3 ${type === "expense"
                     ? "border-red-500 text-red-400"
                     : "border-transparent text-zinc-400 hover:text-white"
-                }`}
+                  }`}
               >
                 <BanknoteArrowDown size={21} />
                 Despesa
@@ -532,11 +530,10 @@ export default function AddTransactionModal({
                 onClick={() =>
                   handleTypeChange("income")
                 }
-                className={`flex h-12 items-center justify-center gap-2 border-b-2 text-sm font-medium transition sm:h-14 sm:gap-3 ${
-                  type === "income"
+                className={`flex h-12 items-center justify-center gap-2 border-b-2 text-sm font-medium transition sm:h-14 sm:gap-3 ${type === "income"
                     ? "border-emerald-500 text-emerald-400"
                     : "border-transparent text-zinc-400 hover:text-white"
-                }`}
+                  }`}
               >
                 <BanknoteArrowUp size={21} />
                 Receita
@@ -605,11 +602,10 @@ export default function AddTransactionModal({
             </div>
 
             <div
-              className={`grid grid-cols-1 gap-5 sm:gap-6 ${
-                type === "expense"
+              className={`grid grid-cols-1 gap-5 sm:gap-6 ${type === "expense"
                   ? "sm:grid-cols-2"
                   : ""
-              }`}
+                }`}
             >
               <div>
                 <label className="mb-2 block text-sm font-medium text-white">
@@ -680,7 +676,7 @@ export default function AddTransactionModal({
 
             {type === "expense" &&
               paymentMethod ===
-                "Cartão de crédito" && (
+              "Cartão de crédito" && (
                 <div className="space-y-5">
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6">
                     <div>
@@ -690,12 +686,11 @@ export default function AddTransactionModal({
 
                       <div className="relative">
                         <div
-                          className={`pointer-events-none absolute left-4 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full ${
-                            selectedCardId ===
-                            "inter"
+                          className={`pointer-events-none absolute left-4 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full ${selectedCardId ===
+                              "inter"
                               ? "bg-orange-500 text-white"
                               : "bg-blue-500 text-white"
-                          }`}
+                            }`}
                         >
                           <CreditCard size={18} />
                         </div>
@@ -777,12 +772,12 @@ export default function AddTransactionModal({
                             {installments} de{" "}
                             {formatBRL(
                               Number(amount) /
-                                Number(
-                                  installments.replace(
-                                    "x",
-                                    ""
-                                  )
+                              Number(
+                                installments.replace(
+                                  "x",
+                                  ""
                                 )
+                              )
                             )}
                           </p>
                         </div>
@@ -848,11 +843,10 @@ function SelectBox({
 
       <div className="relative">
         <div
-          className={`pointer-events-none absolute left-4 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full ${
-            color === "red"
+          className={`pointer-events-none absolute left-4 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full ${color === "red"
               ? "bg-red-500 text-white"
               : "bg-zinc-800 text-zinc-300"
-          }`}
+            }`}
         >
           {icon}
         </div>

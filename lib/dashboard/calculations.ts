@@ -1,3 +1,4 @@
+
 import type {
   Account,
   ChartMonth,
@@ -75,6 +76,12 @@ export function buildDashboardData(
 
   const months = buildPeriodMonths(period);
   const monthlyMap = new Map(months.map((item) => [item.key, item]));
+  const salaryMap = new Map(
+    months.map((item) => [
+      item.key,
+      { month: item.month, income: 0, expense: 0 },
+    ]),
+  );
 
   for (const transaction of caixaTransactions) {
     const key = getMonthKey(transaction.transaction_date);
@@ -86,12 +93,19 @@ export function buildDashboardData(
 
     if (transaction.type === "income") {
       monthData.income += amount;
+
+      if (transaction.is_salary === true) {
+        const salaryMonth = salaryMap.get(key);
+
+        if (salaryMonth) {
+          salaryMonth.income += amount;
+        }
+      }
     } else {
       monthData.expense += amount;
     }
   }
 
-  
   const balanceChartData = months.map((month) => {
     const monthTransactions = caixaTransactions.filter(
       (transaction) => getMonthKey(transaction.transaction_date) === month.key,
@@ -108,12 +122,20 @@ export function buildDashboardData(
     };
   });
 
-
   const monthlyChartData = months.map((month) => ({
     month: month.month,
     income: month.income,
     expense: month.expense,
   }));
+
+  const salaryChartData = months.map(
+    (month) =>
+      salaryMap.get(month.key) ?? {
+        month: month.month,
+        income: 0,
+        expense: 0,
+      },
+  );
 
   const recentImports = [...sortedTransactions]
     .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
@@ -127,6 +149,7 @@ export function buildDashboardData(
     lastImport,
     balanceChartData,
     monthlyChartData,
+    salaryChartData,
     recentImports,
   };
 }

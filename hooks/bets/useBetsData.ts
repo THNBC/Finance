@@ -47,8 +47,8 @@ export function useBetsData() {
     if (accountsRes.error || transactionsRes.error) {
       alert(
         accountsRes.error?.message ||
-          transactionsRes.error?.message ||
-          "Erro ao carregar bets.",
+        transactionsRes.error?.message ||
+        "Erro ao carregar bets.",
       );
       setLoading(false);
       return;

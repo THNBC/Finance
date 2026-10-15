@@ -30,11 +30,10 @@ export function InvestmentsChartPanel({
               onClick={() =>
                 onChartMonthsChange(value as 3 | 6 | 12)
               }
-              className={`flex-1 whitespace-nowrap rounded-xl border px-3 py-1.5 text-xs transition sm:flex-none ${
-                chartMonths === value
+              className={`flex-1 whitespace-nowrap rounded-xl border px-3 py-1.5 text-xs transition sm:flex-none ${chartMonths === value
                   ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
                   : "border-white/10 text-zinc-500 hover:border-emerald-400/40 hover:text-emerald-300"
-              }`}
+                }`}
             >
               {value} meses
             </button>

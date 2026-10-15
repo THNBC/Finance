@@ -18,7 +18,7 @@ export function useDashboardData(period: DashboardPeriod) {
       supabase
         .from("transactions")
         .select(
-          "id, transaction_date, description, amount, type, source, created_at",
+          "id, transaction_date, description, amount, type, source, created_at, is_salary",
         )
         .order("transaction_date", { ascending: true }),
 

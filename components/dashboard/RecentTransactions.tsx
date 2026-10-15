@@ -101,11 +101,10 @@ export function RecentTransactions({
                   </td>
 
                   <td
-                    className={`px-5 py-3 text-right font-medium ${
-                      Number(transaction.amount) >= 0
+                    className={`px-5 py-3 text-right font-medium ${Number(transaction.amount) >= 0
                         ? "text-emerald-300"
                         : "text-red-300"
-                    }`}
+                      }`}
                   >
                     {formatBRL(Number(transaction.amount))}
                   </td>

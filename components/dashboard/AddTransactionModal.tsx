@@ -1,3 +1,4 @@
+
 "use client";
 
 import { X } from "lucide-react";
@@ -9,11 +10,13 @@ type Props = {
   description: string;
   amount: string;
   date: string;
+  isSalary: boolean;
   onClose: () => void;
   onTypeChange: (value: "income" | "expense") => void;
   onDescriptionChange: (value: string) => void;
   onAmountChange: (value: string) => void;
   onDateChange: (value: string) => void;
+  onIsSalaryChange: (value: boolean) => void;
   onSave: () => void;
 };
 
@@ -24,11 +27,13 @@ export function AddTransactionModal({
   description,
   amount,
   date,
+  isSalary,
   onClose,
   onTypeChange,
   onDescriptionChange,
   onAmountChange,
   onDateChange,
+  onIsSalaryChange,
   onSave,
 }: Props) {
   if (!open) return null;
@@ -41,7 +46,6 @@ export function AddTransactionModal({
             <h3 className="text-lg font-semibold sm:text-xl">
               Adicionar transação
             </h3>
-
             <p className="mt-1 text-sm text-zinc-500">
               Lance uma entrada ou saída direto na Conta Caixa.
             </p>
@@ -68,11 +72,10 @@ export function AddTransactionModal({
               <button
                 type="button"
                 onClick={() => onTypeChange("income")}
-                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
-                  type === "income"
-                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
-                    : "border-white/10 bg-black/20 text-zinc-400 hover:bg-white/5"
-                }`}
+                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${type === "income"
+                  ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
+                  : "border-white/10 bg-black/20 text-zinc-400 hover:bg-white/5"
+                  }`}
               >
                 Entrada
               </button>
@@ -80,44 +83,64 @@ export function AddTransactionModal({
               <button
                 type="button"
                 onClick={() => onTypeChange("expense")}
-                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
-                  type === "expense"
-                    ? "border-red-400/40 bg-red-400/10 text-red-300"
-                    : "border-white/10 bg-black/20 text-zinc-400 hover:bg-white/5"
-                }`}
+                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${type === "expense"
+                  ? "border-red-400/40 bg-red-400/10 text-red-300"
+                  : "border-white/10 bg-black/20 text-zinc-400 hover:bg-white/5"
+                  }`}
               >
                 Saída
               </button>
             </div>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm text-zinc-400">
-              Descrição
+          {type === "income" && (
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
+              <input
+                type="checkbox"
+                checked={isSalary}
+                onChange={(event) =>
+                  onIsSalaryChange(event.target.checked)
+                }
+                className="h-4 w-4 accent-emerald-400"
+              />
+              <span>
+                <span className="block text-sm font-medium text-white">
+                  É salário?
+                </span>
+                <span className="mt-0.5 block text-xs text-zinc-500">
+                  Identifica esta entrada como salário no gráfico mensal.
+                </span>
+              </span>
             </label>
+          )}
 
-            <input
-              value={description}
-              onChange={(event) =>
-                onDescriptionChange(event.target.value)
-              }
-              placeholder="Ex: Salário, mercado, pix..."
-              className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-emerald-400/50"
-            />
+          <div>
+            {!isSalary && (
+              <div>
+                <label className="mb-2 block text-sm text-zinc-400">
+                  Descrição
+                </label>
+
+                <input
+                  value={description}
+                  onChange={(event) => onDescriptionChange(event.target.value)}
+                  placeholder="Ex.: mercado, Pix..."
+                  className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-emerald-400/50"
+                />
+              </div>
+            )}
+
           </div>
 
           <div>
             <label className="mb-2 block text-sm text-zinc-400">
               Valor
             </label>
-
             <input
               inputMode="decimal"
               value={amount}
-              onChange={(event) =>
-                onAmountChange(event.target.value)
-              }
-              placeholder="Ex: 1000 ou 1.000,50"
+              onChange={(event) => onAmountChange(event.target.value)}
+              placeholder="Ex.: 1000 ou 1.000,50"
               className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-emerald-400/50"
             />
           </div>
@@ -126,13 +149,10 @@ export function AddTransactionModal({
             <label className="mb-2 block text-sm text-zinc-400">
               Data
             </label>
-
             <input
               type="date"
               value={date}
-              onChange={(event) =>
-                onDateChange(event.target.value)
-              }
+              onChange={(event) => onDateChange(event.target.value)}
               className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-400/50"
             />
           </div>

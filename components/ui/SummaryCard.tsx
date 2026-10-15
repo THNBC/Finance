@@ -55,11 +55,10 @@ export function SummaryCard({
       </div>
 
       <strong
-        className={`mt-3 block break-words font-semibold ${
-          icon
+        className={`mt-3 block break-words font-semibold ${icon
             ? "text-2xl tracking-tight text-white sm:text-3xl"
             : `text-xl sm:text-2xl ${textVariants[variant]}`
-        }`}
+          }`}
       >
         {value}
       </strong>

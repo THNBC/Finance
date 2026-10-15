@@ -64,11 +64,10 @@ export function AddTransactionModal({
               <button
                 type="button"
                 onClick={() => onTypeChange("income")}
-                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
-                  type === "income"
-                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
-                    : "border-white/10 bg-black/20 text-zinc-400 hover:bg-white/5"
-                }`}
+                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${type === "income"
+                  ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
+                  : "border-white/10 bg-black/20 text-zinc-400 hover:bg-white/5"
+                  }`}
               >
                 Entrada
               </button>
@@ -76,11 +75,10 @@ export function AddTransactionModal({
               <button
                 type="button"
                 onClick={() => onTypeChange("expense")}
-                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
-                  type === "expense"
-                    ? "border-red-400/40 bg-red-400/10 text-red-300"
-                    : "border-white/10 bg-black/20 text-zinc-400 hover:bg-white/5"
-                }`}
+                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${type === "expense"
+                  ? "border-red-400/40 bg-red-400/10 text-red-300"
+                  : "border-white/10 bg-black/20 text-zinc-400 hover:bg-white/5"
+                  }`}
               >
                 Saída
               </button>

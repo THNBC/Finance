@@ -219,12 +219,12 @@ export function useCartoesActions({
       const amount =
         index === installmentsCount - 1
           ? Number(
-              (
-                totalAmount -
-                installmentAmount *
-                  (installmentsCount - 1)
-              ).toFixed(2)
-            )
+            (
+              totalAmount -
+              installmentAmount *
+              (installmentsCount - 1)
+            ).toFixed(2)
+          )
           : installmentAmount;
 
       return {

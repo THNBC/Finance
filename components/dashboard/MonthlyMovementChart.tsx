@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Bar,
   BarChart,
@@ -16,6 +17,7 @@ import { ChartCard } from "./ChartCard";
 
 type Props = {
   data: MonthlyChartItem[];
+  salaryData: MonthlyChartItem[];
 };
 
 function formatAxisValue(value: number) {
@@ -32,25 +34,59 @@ function formatAxisValue(value: number) {
   return String(Math.round(value));
 }
 
-export function MonthlyMovementChart({ data }: Props) {
+export function MonthlyMovementChart({ data, salaryData }: Props) {
+  const [salaryOnly, setSalaryOnly] = useState(false);
+  const chartData = salaryOnly ? salaryData : data;
+
   return (
-    <ChartCard title="Movimentação mensal">
-      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-zinc-500">
+    <ChartCard
+      title="Movimentação mensal"
+      rightContent={
+        <div className="flex rounded-xl border border-white/10 bg-black/20 p-1">
+          <button
+            type="button"
+            onClick={() => setSalaryOnly(false)}
+            aria-pressed={!salaryOnly}
+            className={`rounded-lg px-3 py-2 text-xs font-medium transition ${!salaryOnly
+                ? "bg-white/10 text-white"
+                : "text-zinc-500 hover:text-zinc-300"
+              }`}
+          >
+            Todas
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSalaryOnly(true)}
+            aria-pressed={salaryOnly}
+            className={`rounded-lg px-3 py-2 text-xs font-medium transition ${salaryOnly
+                ? "bg-emerald-400/10 text-emerald-300"
+                : "text-zinc-500 hover:text-zinc-300"
+              }`}
+          >
+            Salários
+          </button>
+        </div>
+      }
+    >
+      <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
         <span className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-emerald-400" />
-          Receitas
+          {salaryOnly ? "Salários" : "Receitas"}
         </span>
 
-        <span className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-red-400" />
-          Despesas
-        </span>
+        {!salaryOnly && (
+          <span className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-red-400" />
+            Despesas
+          </span>
+        )}
       </div>
 
       <div className="h-[220px] sm:h-[260px]">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
-            data={data}
+            data={chartData}
             margin={{
               top: 5,
               right: 4,
@@ -95,15 +131,19 @@ export function MonthlyMovementChart({ data }: Props) {
 
             <Bar
               dataKey="income"
+              name={salaryOnly ? "Salários" : "Receitas"}
               fill="#10b981"
               radius={[6, 6, 0, 0]}
             />
 
-            <Bar
-              dataKey="expense"
-              fill="#ef4444"
-              radius={[6, 6, 0, 0]}
-            />
+            {!salaryOnly && (
+              <Bar
+                dataKey="expense"
+                name="Despesas"
+                fill="#ef4444"
+                radius={[6, 6, 0, 0]}
+              />
+            )}
           </BarChart>
         </ResponsiveContainer>
       </div>

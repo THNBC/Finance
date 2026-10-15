@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -12,19 +13,33 @@ type Props = {
 export function useDashboardActions({ reload }: Props) {
   const [showTransactionModal, setShowTransactionModal] = useState(false);
   const [savingTransaction, setSavingTransaction] = useState(false);
-  const [transactionType, setTransactionType] = useState<"income" | "expense">(
-    "expense",
-  );
+
+  const [transactionType, setTransactionType] = useState<
+    "income" | "expense"
+  >("expense");
+
+  const [transactionIsSalary, setTransactionIsSalary] = useState(false);
   const [transactionDescription, setTransactionDescription] = useState("");
   const [transactionAmount, setTransactionAmount] = useState("");
   const [transactionDate, setTransactionDate] = useState(
     new Date().toISOString().split("T")[0],
   );
 
+  function handleTransactionTypeChange(value: "income" | "expense") {
+    setTransactionType(value);
+
+    if (value === "expense") {
+      setTransactionIsSalary(false);
+    }
+  }
+
   async function saveManualTransaction() {
     const amount = parseBRLInput(transactionAmount);
 
-    if (!transactionDescription.trim()) {
+    if (
+      !(transactionType === "income" && transactionIsSalary) &&
+      !transactionDescription.trim()
+    ) {
       alert("Informe a descrição da transação.");
       return;
     }
@@ -36,33 +51,46 @@ export function useDashboardActions({ reload }: Props) {
 
     setSavingTransaction(true);
 
-    const signedAmount =
-      transactionType === "income" ? Math.abs(amount) : -Math.abs(amount);
+    try {
+      const signedAmount =
+        transactionType === "income"
+          ? Math.abs(amount)
+          : -Math.abs(amount);
 
-    const { error } = await supabase.from("transactions").insert({
-      transaction_date: transactionDate,
-      description: transactionDescription.trim(),
-      amount: signedAmount,
-      type: transactionType,
-      source: "caixa",
-      paid: true,
-    });
+      const { error } = await supabase.from("transactions").insert({
+        transaction_date: transactionDate,
+        description:
+          transactionType === "income" && transactionIsSalary
+            ? "Salário"
+            : transactionDescription.trim(),
+        amount: signedAmount,
+        type: transactionType,
+        source: "caixa",
+        paid: true,
+        is_salary:
+          transactionType === "income" && transactionIsSalary,
+      });
 
-    setSavingTransaction(false);
+      if (error) {
+        console.error("Erro ao salvar transação:", error);
+        alert(error.message);
+        return;
+      }
 
-    if (error) {
+      setShowTransactionModal(false);
+      setTransactionType("expense");
+      setTransactionIsSalary(false);
+      setTransactionDescription("");
+      setTransactionAmount("");
+      setTransactionDate(new Date().toISOString().split("T")[0]);
+
+      await reload();
+    } catch (error) {
       console.error("Erro ao salvar transação:", error);
-      alert(error.message);
-      return;
+      alert("Não foi possível salvar a transação.");
+    } finally {
+      setSavingTransaction(false);
     }
-
-    setShowTransactionModal(false);
-    setTransactionType("expense");
-    setTransactionDescription("");
-    setTransactionAmount("");
-    setTransactionDate(new Date().toISOString().split("T")[0]);
-
-    await reload();
   }
 
   return {
@@ -71,6 +99,9 @@ export function useDashboardActions({ reload }: Props) {
     savingTransaction,
     transactionType,
     setTransactionType,
+    handleTransactionTypeChange,
+    transactionIsSalary,
+    setTransactionIsSalary,
     transactionDescription,
     setTransactionDescription,
     transactionAmount,

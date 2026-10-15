@@ -68,9 +68,8 @@ export function Panel({
       className={`rounded-3xl border border-white/10 bg-[#081018]/90 ${className}`}
     >
       <div
-        className={`flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 ${
-          borderedHeader ? "border-b border-white/10" : ""
-        }`}
+        className={`flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 ${borderedHeader ? "border-b border-white/10" : ""
+          }`}
       >
         <h3 className="min-w-0 text-base font-semibold sm:text-lg">
           {title}
