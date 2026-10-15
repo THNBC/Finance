@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 import { FiltersCard } from "@/components/transacoes/FiltersCard";
 import { SummaryCard } from "@/components/transacoes/SummaryCard";
 import { TransactionsTable } from "@/components/transacoes/TransactionsTable";
-import { AddTransactionModal } from "@/components/transacoes/modals/AddTransactionModal";
+
 import { ClearHistoryModal } from "@/components/transacoes/modals/ClearHistoryModal";
 import { DeleteTransactionModal } from "@/components/transacoes/modals/DeleteTransactionModal";
 import { useTransacoesActions } from "@/hooks/transacoes/useTransacoesActions";
@@ -129,24 +129,14 @@ export default function TransacoesPage() {
   return (
     <main className="min-h-screen w-full text-white">
       <section className="w-full px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-7">
-        <header className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-              Transações
-            </h2>
+        <header className="mb-7">
+          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            Transações
+          </h2>
 
-            <p className="mt-1 hidden text-sm text-zinc-500 lg:block">
-              Veja e gerencie suas movimentações financeiras.
-            </p>
-          </div>
-
-          <button
-            onClick={() => actions.setShowTransactionModal(true)}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-emerald-400 sm:w-auto"
-          >
-            <ArrowUpRight size={18} />
-            Adicionar Transação
-          </button>
+          <p className="mt-1 hidden text-sm text-zinc-500 lg:block">
+            Veja e gerencie suas movimentações financeiras.
+          </p>
         </header>
 
         <section className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -215,22 +205,7 @@ export default function TransacoesPage() {
         </div>
       </section>
 
-      <AddTransactionModal
-        open={actions.showTransactionModal}
-        saving={actions.savingTransaction}
-        type={actions.transactionType}
-        description={actions.transactionDescription}
-        amount={actions.transactionAmount}
-        date={actions.transactionDate}
-        isSalary={actions.transactionIsSalary}
-        onClose={() => actions.setShowTransactionModal(false)}
-        onTypeChange={actions.setTransactionType}
-        onDescriptionChange={actions.setTransactionDescription}
-        onAmountChange={actions.setTransactionAmount}
-        onDateChange={actions.setTransactionDate}
-        onIsSalaryChange={actions.setTransactionIsSalary}
-        onSave={actions.saveManualTransaction}
-      />
+
 
       <ClearHistoryModal
         open={actions.clearHistoryOpen}
