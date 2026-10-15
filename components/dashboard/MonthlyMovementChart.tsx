@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { TrendingDown, TrendingUp } from "lucide-react";
 
 import type { MonthlyChartItem } from "@/lib/dashboard/types";
 import { formatBRL } from "@/lib/dashboard/utils";
@@ -34,6 +35,102 @@ function formatAxisValue(value: number) {
   return String(Math.round(value));
 }
 
+function CustomTooltip({
+  active,
+  payload,
+  label,
+  chartData,
+  salaryOnly,
+}: {
+  active?: boolean;
+  payload?: readonly {
+    dataKey?: string;
+    value?: number | string;
+  }[];
+  label?: string;
+  chartData: MonthlyChartItem[];
+  salaryOnly: boolean;
+}) {
+  if (!active || !payload?.length) return null;
+
+  const monthIndex = chartData.findIndex((item) => item.month === label);
+  const current = chartData[monthIndex];
+
+  if (!current) return null;
+
+  const income = Number(current.income ?? 0);
+  const previous = monthIndex > 0 ? chartData[monthIndex - 1] : null;
+  const previousIncome = previous ? Number(previous.income ?? 0) : null;
+
+  const hasComparison =
+    salaryOnly &&
+    previousIncome !== null &&
+    previousIncome > 0;
+
+  const variation = hasComparison
+    ? ((income - previousIncome!) / previousIncome!) * 100
+    : null;
+
+  const variationColor =
+    variation === null || variation === 0
+      ? "#a1a1aa"
+      : variation > 0
+        ? "#34d399"
+        : "#f87171";
+
+  const isPositive = variation !== null && variation > 0;
+  const isNegative = variation !== null && variation < 0;
+
+  return (
+    <div className="min-w-[190px] rounded-xl border border-white/10 bg-[#081018] p-3 shadow-xl">
+      <div className="mb-2 flex items-center justify-between gap-4">
+        <span className="text-sm font-medium text-white">{label}</span>
+
+        {salaryOnly && variation !== null && (
+          <span
+            className="flex items-center gap-1 text-sm font-medium tabular-nums"
+            style={{ color: variationColor }}
+          >
+            {isNegative ? (
+              <TrendingDown size={14} />
+            ) : (
+              <TrendingUp size={14} />
+            )}
+
+            {isPositive ? "+" : ""}
+            {variation.toLocaleString("pt-BR", {
+              minimumFractionDigits: 1,
+              maximumFractionDigits: 1,
+            })}
+            %
+          </span>
+        )}
+      </div>
+
+      {payload.map((entry) => {
+        const isExpense = entry.dataKey === "expense";
+        const color = isExpense ? "#f87171" : "#34d399";
+
+        return (
+          <div
+            key={entry.dataKey}
+            className="text-sm tabular-nums"
+            style={{ color }}
+          >
+            {formatBRL(Number(entry.value ?? 0))}
+          </div>
+        );
+      })}
+
+      {salaryOnly && variation === null && (
+        <div className="text-xs text-zinc-500">
+          Sem comparação
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function MonthlyMovementChart({ data, salaryData }: Props) {
   const [salaryOnly, setSalaryOnly] = useState(false);
   const chartData = salaryOnly ? salaryData : data;
@@ -48,8 +145,8 @@ export function MonthlyMovementChart({ data, salaryData }: Props) {
             onClick={() => setSalaryOnly(false)}
             aria-pressed={!salaryOnly}
             className={`rounded-lg px-3 py-2 text-xs font-medium transition ${!salaryOnly
-                ? "bg-white/10 text-white"
-                : "text-zinc-500 hover:text-zinc-300"
+              ? "bg-white/10 text-white"
+              : "text-zinc-500 hover:text-zinc-300"
               }`}
           >
             Todas
@@ -60,8 +157,8 @@ export function MonthlyMovementChart({ data, salaryData }: Props) {
             onClick={() => setSalaryOnly(true)}
             aria-pressed={salaryOnly}
             className={`rounded-lg px-3 py-2 text-xs font-medium transition ${salaryOnly
-                ? "bg-emerald-400/10 text-emerald-300"
-                : "text-zinc-500 hover:text-zinc-300"
+              ? "bg-emerald-400/10 text-emerald-300"
+              : "text-zinc-500 hover:text-zinc-300"
               }`}
           >
             Salários
@@ -119,14 +216,19 @@ export function MonthlyMovementChart({ data, salaryData }: Props) {
             />
 
             <Tooltip
-              formatter={(value) => formatBRL(Number(value))}
-              contentStyle={{
-                background: "#081018",
-                border: "1px solid rgba(255,255,255,0.1)",
-                borderRadius: "14px",
-                color: "#fff",
-                fontSize: "12px",
-              }}
+              content={(props) => (
+                <CustomTooltip
+                  active={props.active}
+                  payload={props.payload as readonly {
+                    dataKey?: string;
+                    value?: number | string;
+                  }[] | undefined}
+                  label={String(props.label ?? "")}
+                  chartData={chartData}
+                  salaryOnly={salaryOnly}
+                />
+              )}
+              cursor={{ fill: "rgba(255,255,255,0.03)" }}
             />
 
             <Bar

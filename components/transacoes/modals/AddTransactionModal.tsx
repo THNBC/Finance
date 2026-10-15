@@ -1,3 +1,4 @@
+
 import { X } from "lucide-react";
 
 type Props = {
@@ -7,11 +8,13 @@ type Props = {
   description: string;
   amount: string;
   date: string;
+  isSalary: boolean;
   onClose: () => void;
   onTypeChange: (value: "income" | "expense") => void;
   onDescriptionChange: (value: string) => void;
   onAmountChange: (value: string) => void;
   onDateChange: (value: string) => void;
+  onIsSalaryChange: (value: boolean) => void;
   onSave: () => void;
 };
 
@@ -22,11 +25,13 @@ export function AddTransactionModal({
   description,
   amount,
   date,
+  isSalary,
   onClose,
   onTypeChange,
   onDescriptionChange,
   onAmountChange,
   onDateChange,
+  onIsSalaryChange,
   onSave,
 }: Props) {
   if (!open) return null;
@@ -66,10 +71,11 @@ export function AddTransactionModal({
               <button
                 type="button"
                 onClick={() => onTypeChange("income")}
-                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${type === "income"
+                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
+                  type === "income"
                     ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
                     : "border-white/10 bg-black/20 text-zinc-400 hover:bg-white/5"
-                  }`}
+                }`}
               >
                 Entrada
               </button>
@@ -77,15 +83,30 @@ export function AddTransactionModal({
               <button
                 type="button"
                 onClick={() => onTypeChange("expense")}
-                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${type === "expense"
+                className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
+                  type === "expense"
                     ? "border-red-400/40 bg-red-400/10 text-red-300"
                     : "border-white/10 bg-black/20 text-zinc-400 hover:bg-white/5"
-                  }`}
+                }`}
               >
                 Saída
               </button>
             </div>
           </div>
+
+          {type === "income" && (
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
+              <input
+                type="checkbox"
+                checked={isSalary}
+                onChange={(event) => onIsSalaryChange(event.target.checked)}
+                className="h-4 w-4 accent-emerald-400"
+              />
+              <span className="text-sm text-zinc-300">
+                Esta entrada é um salário
+              </span>
+            </label>
+          )}
 
           <div>
             <label className="mb-2 block text-sm text-zinc-400">
@@ -94,9 +115,7 @@ export function AddTransactionModal({
 
             <input
               value={description}
-              onChange={(event) =>
-                onDescriptionChange(event.target.value)
-              }
+              onChange={(event) => onDescriptionChange(event.target.value)}
               placeholder="Ex: Salário, mercado, pix..."
               className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-emerald-400/50"
             />
@@ -110,9 +129,7 @@ export function AddTransactionModal({
             <input
               inputMode="decimal"
               value={amount}
-              onChange={(event) =>
-                onAmountChange(event.target.value)
-              }
+              onChange={(event) => onAmountChange(event.target.value)}
               placeholder="Ex: 1000 ou 1.000,50"
               className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-emerald-400/50"
             />
@@ -126,9 +143,7 @@ export function AddTransactionModal({
             <input
               type="date"
               value={date}
-              onChange={(event) =>
-                onDateChange(event.target.value)
-              }
+              onChange={(event) => onDateChange(event.target.value)}
               className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-400/50"
             />
           </div>

@@ -222,11 +222,13 @@ export default function TransacoesPage() {
         description={actions.transactionDescription}
         amount={actions.transactionAmount}
         date={actions.transactionDate}
+        isSalary={actions.transactionIsSalary}
         onClose={() => actions.setShowTransactionModal(false)}
         onTypeChange={actions.setTransactionType}
         onDescriptionChange={actions.setTransactionDescription}
         onAmountChange={actions.setTransactionAmount}
         onDateChange={actions.setTransactionDate}
+        onIsSalaryChange={actions.setTransactionIsSalary}
         onSave={actions.saveManualTransaction}
       />
 

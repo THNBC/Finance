@@ -34,6 +34,7 @@ export function useTransacoesActions({
     "expense"
   );
   const [transactionDescription, setTransactionDescription] = useState("");
+  const [transactionIsSalary, setTransactionIsSalary] = useState(false);
   const [transactionAmount, setTransactionAmount] = useState("");
   const [transactionDate, setTransactionDate] = useState(
     new Date().toISOString().split("T")[0]
@@ -101,6 +102,7 @@ export function useTransacoesActions({
       type: transactionType,
       source: "caixa",
       paid: true,
+      is_salary: transactionType === "income" && transactionIsSalary,
     });
 
     setSavingTransaction(false);
@@ -114,6 +116,7 @@ export function useTransacoesActions({
     setShowTransactionModal(false);
     setTransactionType("expense");
     setTransactionDescription("");
+    setTransactionIsSalary(false);
     setTransactionAmount("");
     setTransactionDate(new Date().toISOString().split("T")[0]);
 
@@ -187,6 +190,8 @@ export function useTransacoesActions({
     setTransactionType,
     transactionDescription,
     setTransactionDescription,
+    transactionIsSalary,
+    setTransactionIsSalary,
     transactionAmount,
     setTransactionAmount,
     transactionDate,
